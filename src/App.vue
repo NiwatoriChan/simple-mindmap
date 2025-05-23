@@ -69,25 +69,19 @@
         @close="isDeleteConfirmModalOpen = false"
         @confirm-delete="confirmDeleteNode"
     />
-    <modal :is-open="isErrorModalOpen" @close="isErrorModalOpen = false" :title="errorModalTitle">
-        <p class="mb-4" :class="errorModalTypeClass">{{ errorModalMessage }}</p>
-        <div class="flex justify-end">
-            <button @click="isErrorModalOpen = false" class="px-4 py-2 bg-slate-600 text-gray-200 hover:bg-slate-500 rounded transition-colors">Fermer</button>
-        </div>
-    </modal>
-    <modal :is-open="isAboutModalOpen" @close="isAboutModalOpen = false" title="À propos de Carte Mentale Interactive" width-class="max-w-md">
-        <p class="text-gray-300 mb-2"><strong>Version :</strong> 1.1.0-alpha</p>
-        <p class="text-gray-300 mb-4"><strong>Auteur :</strong> Charles-Antoine Huberdeau</p>
-        <div class="border-t border-slate-700 pt-4 mt-4">
-            <h4 class="text-md font-semibold mb-2 text-gray-200">Technologies :</h4>
-            <ul class="list-disc list-inside text-sm text-gray-400">
-                <li>Vue.js 3</li><li>Tailwind CSS</li><li>Font Awesome</li>
-            </ul>
-        </div>
-        <div class="flex justify-end mt-6">
-            <button @click="isAboutModalOpen = false" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">Fermer</button>
-        </div>
-    </modal>
+    <ErrorModal
+        :is-open="isErrorModalOpen"
+        :title="errorModalTitle"
+        :message="errorModalMessage"
+        :type="errorModalType"
+        @close="isErrorModalOpen = false"
+    />
+    <AboutModal
+        :is-open="isAboutModalOpen"
+        title="À propos de Carte Mentale Interactive"
+        width-class="max-w-md"
+        @close="isAboutModalOpen = false"
+    />
     <ContextMenu
         :visible="contextMenu.visible"
         :x="contextMenu.x"
@@ -183,10 +177,12 @@ import TextEditModal from './components/TextEditModal.vue';
 import HyperlinkModal from './components/HyperlinkModal.vue';
 import ImagePreviewModal from './components/ImagePreviewModal.vue';
 import DeleteConfirmModal from './components/DeleteConfirmModal.vue';
+import ErrorModal from './components/ErrorModal.vue';
+import AboutModal from './components/AboutModal.vue';
 
 export default {
   name: 'App',
-  components: { 'modal': Modal, Toolbar, MindMapCanvas, ContextMenu, FileMenu, TextEditModal, HyperlinkModal, ImagePreviewModal, DeleteConfirmModal },
+  components: { Toolbar, MindMapCanvas, ContextMenu, FileMenu, Modal, TextEditModal, HyperlinkModal, ImagePreviewModal, DeleteConfirmModal, ErrorModal, AboutModal },
   data() {
       return {
           nodes: [], selectedNodeId: null, offsetX: 0, offsetY: 0, scale: 1,
@@ -225,11 +221,11 @@ export default {
       }
   },
   computed: {
-      dynamicStyles() { return getDynamicDrawingStyles(); },
+      // dynamicStyles and getDynamicDrawingStyles were removed as they are no longer used.
       selectedNode() { return this.findNodeById(this.selectedNodeId); },
       selectedNodeBgColor: { get() { return this.selectedNode ? this.selectedNode.color : NODE_DEFAULT_BG_COLOR; }, set(value) {} },
       selectedNodeTextColor: { get() { return this.selectedNode ? this.selectedNode.textColor : NODE_DEFAULT_TEXT_COLOR; }, set(value) {} },
-      errorModalTypeClass() { if (this.errorModalType === 'success') return 'text-green-400'; if (this.errorModalType === 'info') return 'text-blue-400'; return 'text-red-400'; },
+      // Removed errorModalTypeClass as it's now in ErrorModal.vue
       contextSubmenuOpenLeft() { if (this.$refs.contextMenuElement) { const menuWidth = this.$refs.contextMenuElement.offsetWidth || 200; const submenuWidthEstimate = 180; return this.contextMenu.x + menuWidth + submenuWidthEstimate > window.innerWidth; } return false; },
       fileMenuSubmenuOpenLeft() {
           if (this.$refs.fileMenuElement) {
@@ -244,10 +240,10 @@ export default {
       hasRootNode() { return this.nodes.some(n => n.parentId === null || n.parentId === undefined); },
   },
   watch: {
-      canvasBgColor(newValue, oldValue) {
+      canvasBgColor(newValue, oldValue) { // This watcher seems to be from an older version, canvasBgColor is in data()
           if(newValue !== oldValue) {
               this.recordHistory("Change Canvas Bg");
-              this.redrawCanvas();
+              this.requestCanvasRedraw(); // Changed to requestCanvasRedraw
           }
       },
       nodes: { handler() { this.requestCanvasRedraw(); }, deep: true },
@@ -263,18 +259,19 @@ export default {
   },
   mounted() {
       // Resize listener for App.vue might not be needed if MindMapCanvas handles its own resize.
-      // window.addEventListener('resize', this.resizeApp); // Example if App needed to react to resize
-      let didLoad = this.loadMapFromLocalStorage();
-
-      if (!didLoad && !this.hasRootNode) {
-          this.$nextTick(() => {
-               this.addInitialNode();
-          });
-      } else if (this.nodes.length > 0 && this.history.length === 0) {
-           this.recordHistory("Load Initial Map");
-      } else if (this.history.length > 0 && this.currentHistoryIndex === -1 && this.nodes.length > 0){
-           this.currentHistoryIndex = this.history.length - 1;
-      }
+      // window.addEventListener('resize', this.resizeApp);
+      this.loadMapFromLocalStorage().then(didLoad => {
+        if (!didLoad && !this.hasRootNode) {
+            this.$nextTick(() => {
+                 this.addInitialNode();
+            });
+        } else if (this.nodes.length > 0 && this.history.length === 0) {
+             this.recordHistory("Load Initial Map");
+        } else if (this.history.length > 0 && this.currentHistoryIndex === -1 && this.nodes.length > 0){
+             this.currentHistoryIndex = this.history.length - 1;
+        }
+      });
+      // Removed the duplicated/conflicting didLoad check block.
 
       document.addEventListener('click', this.handleGlobalClick);
       document.addEventListener('keydown', this.handleGlobalKeyDown);
@@ -296,7 +293,7 @@ export default {
       });
   },
   beforeUnmount() {
-      // window.removeEventListener('resize', this.resizeApp);
+      // window.removeEventListener('resize', this.resizeApp); 
       document.removeEventListener('click', this.handleGlobalClick);
       document.removeEventListener('keydown', this.handleGlobalKeyDown);
       if (this.autosaveIntervalId) {
@@ -435,33 +432,8 @@ export default {
       },
       showError(message, type = 'error', title) { this.errorModalTitle = title || (type === 'success' ? 'Succès' : (type === 'info' ? 'Information' : 'Erreur')); this.errorModalMessage = String(message || "Une erreur inconnue s'est produite."); this.errorModalType = type; this.isErrorModalOpen = true; },
       findNodeById(id) { return this.nodes.find(node => node.id === id); },
-      
-      // getMousePos is now primarily handled by MindMapCanvas, but App.vue might need a version for context menu, etc.
-      // This version uses the event's clientX/Y and the App's stored offsetX/Y/scale.
-      getAppMousePos(event) {
-        // This method assumes the event's clientX/Y are available.
-        // If MindMapCanvas emits world coordinates, this might not be needed or would be simpler.
-        // For now, let's assume we need to calculate it based on App.vue's state
-        // if the canvas component doesn't provide world coordinates directly in the event payload.
-        // However, the canvas component's event handlers (onMouseDown etc.) will have access to its own getMousePos.
-        // So, App.vue should rely on the coordinates provided in the event payload from MindMapCanvas.
-        // This function is likely redundant if MindMapCanvas emits world coordinates.
-        // Let's keep it for now if context menus are positioned relative to the viewport.
-        const canvasComponent = this.$refs.mindMapCanvasComponentRef;
-        if (!canvasComponent || !canvasComponent.$refs.mindMapCanvasRef) { // Check the actual canvas element ref inside the component
-             console.warn("MindMapCanvas or its internal canvas element is not available for getAppMousePos");
-             return { x: event.clientX, y: event.clientY, screenX: event.clientX, screenY: event.clientY }; // Fallback
-        }
-        const rect = canvasComponent.$refs.mindMapCanvasRef.getBoundingClientRect();
-        const mx = event.clientX - rect.left;
-        const my = event.clientY - rect.top;
-        return { 
-            x: (mx - this.offsetX) / this.scale, 
-            y: (my - this.offsetY) / this.scale, 
-            screenX: event.clientX, 
-            screenY: event.clientY 
-        };
-      },
+      // getAppMousePos was removed as it's redundant. Canvas events provide worldPos.
+      // ContextMenu positioning uses event.clientX/Y directly.
 
       getNodeAtPos(worldX, worldY) { 
         // This logic relies on node dimensions and positions, so it's fine in App.vue
@@ -522,16 +494,19 @@ export default {
           this.potentialLinkTargetId = null;
       },
       addInitialNode() {
-          const canvas = this.$refs.mindMapCanvas;
-          if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-              this.$nextTick(() => this.addInitialNode());
+          const canvasComponent = this.$refs.mindMapCanvasComponentRef;
+          const canvasEl = canvasComponent?.$refs.mindMapCanvasRef;
+
+          if (!canvasEl || canvasEl.width <= 0 || canvasEl.height <= 0) {
+              this.$nextTick(() => this.addInitialNode()); // Retry if canvas not ready
               return null;
           }
           const nodeId = generateUUID();
           const nodeWidth = NODE_DEFAULT_WIDTH + 40;
           const nodeHeight = NODE_DEFAULT_HEIGHT;
-          const nodeX = (canvas.width / 2) - nodeWidth / 2;
-          const nodeY = (canvas.height / 2) - nodeHeight / 2;
+          // Use canvasEl dimensions from the child component's canvas
+          const nodeX = (canvasEl.width / 2) - nodeWidth / 2; 
+          const nodeY = (canvasEl.height / 2) - nodeHeight / 2;
           const worldX = (nodeX - this.offsetX) / this.scale;
           const worldY = (nodeY - this.offsetY) / this.scale;
 
@@ -546,7 +521,7 @@ export default {
           };
           this.nodes.push(newNode);
           this.selectedNodeId = nodeId;
-          this.startAnimationLoop();
+          // this.startAnimationLoop(); // Removed: MindMapCanvas handles its own animation loop trigger
           this.recordHistory("Add Initial Node");
           return newNode;
       },
@@ -555,17 +530,23 @@ export default {
               this.showError("Un concept central existe déjà.");
               return null;
           }
-          const canvas = this.$refs.mindMapCanvas;
-          if (!canvas || canvas.width <= 0 || canvas.height <= 0) { return null; }
+          const canvasComponent = this.$refs.mindMapCanvasComponentRef;
+          const canvasEl = canvasComponent?.$refs.mindMapCanvasRef;
+
+          if (!canvasEl || canvasEl.width <= 0 || canvasEl.height <= 0) { 
+            this.$nextTick(() => this.addRootNode()); // Retry if canvas not ready
+            return null; 
+          }
           const rootId = generateUUID();
           const nodeWidth = NODE_DEFAULT_WIDTH + 40;
           const nodeHeight = NODE_DEFAULT_HEIGHT;
-          const rootX = (this.contextMenu.rawX !== 0 ? this.contextMenu.rawX : (canvas.width / 2 - this.offsetX) / this.scale) - nodeWidth / 2;
-          const rootY = (this.contextMenu.rawY !== 0 ? this.contextMenu.rawY : (canvas.height / 2 - this.offsetY) / this.scale) - nodeHeight / 2;
+          // Use canvasEl dimensions
+          const rootX = (this.contextMenu.rawX !== 0 ? this.contextMenu.rawX : (canvasEl.width / 2 - this.offsetX) / this.scale) - nodeWidth / 2;
+          const rootY = (this.contextMenu.rawY !== 0 ? this.contextMenu.rawY : (canvasEl.height / 2 - this.offsetY) / this.scale) - nodeHeight / 2;
           const newNode = { id: rootId, text: "Concept Central", x: rootX, y: rootY, width: nodeWidth, height: nodeHeight, parentId: null, color: '#4A5568', textColor: '#E2E8F0', imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
           this.nodes.push(newNode);
           this.selectedNodeId = rootId;
-          this.startAnimationLoop();
+          // this.startAnimationLoop(); // Removed: MindMapCanvas handles its own animation loop trigger
           this.recordHistory("Add Root Node");
           return newNode;
       },
@@ -613,7 +594,7 @@ export default {
           const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight, parentId: parentNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: entryPoint, parentExitPoint: parentExitPoint, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
           this.nodes.push(newNode);
           this.selectedNodeId = newNodeId;
-          this.startAnimationLoop();
+          // this.startAnimationLoop(); // Removed: MindMapCanvas handles its own animation loop trigger
           this.hideContextMenu();
           this.recordHistory("Add Node");
       },
@@ -625,7 +606,7 @@ export default {
 
           this.nodes.push(newNode);
           this.selectedNodeId = newNodeId;
-          this.startAnimationLoop();
+          // this.startAnimationLoop(); // Removed: MindMapCanvas handles its own animation loop trigger
           this.hideContextMenu();
           this.recordHistory("Add Node at Position");
       },
@@ -1443,47 +1424,21 @@ export default {
       // These interaction helpers (getClicked..., getNodeWith..., getHovered...) will use worldPos from canvas events.
 
       handleGlobalClick(event) {
-  // However, modern Vue 3 prefers computed properties or methods for this.
-  // For now, this is kept for direct compatibility with the original script structure.
-  beforeCreate() {
-    this.$filters = {
-      capitalize(value) {
-        if (!value) return ''
-        value = value.toString()
-        return value.charAt(0).toUpperCase() + value.slice(1)
-      }
-    }
-  }
+  // $filters is no longer used in App.vue's template, beforeCreate hook removed.
 };
 </script>
 
 <style>
-    body { /* These styles might be better in a global CSS file or directly on the body in index.html */
-        font-family: 'Inter', sans-serif;
-    }
-    :root { font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif; }
+/* All global styles previously here have been moved to src/assets/main.css */
 
-    #mindMapCanvas { display: block; border-radius: 0.5rem; cursor: grab; }
-    #mindMapCanvas:active { cursor: grabbing; }
-
-    /* body styles and :root font-family are global, so they remain in App.vue or could be moved to a main.css */
-    body { 
-        font-family: 'Inter', sans-serif;
-    }
-    :root { font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif; }
-
-    #mindMapCanvas { display: block; border-radius: 0.5rem; cursor: grab; }
-    #mindMapCanvas:active { cursor: grabbing; }
-
-    /* Toolbar specific styles moved to Toolbar.vue */
-    /* Styles for color picker inputs are now in FileMenu.vue and ContextMenu.vue if needed locally, or could be global */
-    /* .color-picker-label and .color-picker-input might be global or duplicated if not using Tailwind extensively */
-
-    .modal-backdrop { background-color: rgba(0, 0, 0, 0.6); }
-    .modal-content { transform: scale(0.95); opacity: 0; animation: modal-appear 0.3s forwards; }
-    @keyframes modal-appear { to { opacity: 1; transform: scale(1); } }
-
-    /* Styles for #contextMenu and related classes are now in ContextMenu.vue */
-    /* Styles for #fileContextMenu and related classes are now in FileMenu.vue */
-    /* [v-cloak] styles are not needed here as App.vue is a component */
+/* If #app-vue-container needs specific styling not covered by Tailwind, it could go here. */
+/* For example:
+#app-vue-container {
+  display: flex; 
+  flex-direction: column;
+  height: 100vh; 
+  This is already handled by Tailwind classes: "flex flex-col h-screen"
+}
+*/
+/* No remaining styles needed in App.vue as global styles are in main.css and component styles are scoped. */
 </style>

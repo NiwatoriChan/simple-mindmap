@@ -1,0 +1,28 @@
+/* Global styles that apply to the body or root elements */
+body { 
+    font-family: 'Inter', sans-serif;
+    /* Ensure body takes full height if not already handled by Tailwind on html/body in index.html */
+    /* The App.vue template uses h-screen on the root div, which is good. */
+    /* Tailwind's preflight typically handles base font settings, but explicit here is fine. */
+}
+
+:root { 
+    font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif; 
+}
+
+/* Styles for generic modal appearance (backdrop, basic modal content animation) */
+/* These are used by the base Modal.vue component */
+.modal-backdrop { 
+    background-color: rgba(0, 0, 0, 0.6); 
+}
+.modal-content { 
+    transform: scale(0.95); 
+    opacity: 0; 
+    animation: modal-appear 0.3s forwards; 
+}
+@keyframes modal-appear { 
+    to { 
+        opacity: 1; 
+        transform: scale(1); 
+    } 
+}
