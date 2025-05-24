@@ -96,6 +96,76 @@
         .linking-cursor { cursor: crosshair !important; }
         .drag-linking-cursor { cursor: alias !important; }
         [v-cloak] { display: none; }
+
+        @media (max-width: 640px) {
+            .modal-content {
+                /* Allow modals to be wider on small screens */
+                max-width: 95vw !important; /* Use !important to override Tailwind's max-w utility if needed */
+                padding: 1rem; /* Reduce padding on small screens from p-5 or p-6 */
+            }
+
+            /* Specific adjustments for modals if needed */
+            .modal-content.max-w-sm { max-width: 95vw !important; }
+            .modal-content.max-w-md { max-width: 95vw !important; }
+            .modal-content.max-w-lg { max-width: 95vw !important; }
+
+            /* Reduce font size of modal titles on small screens */
+            .modal-content h3 {
+                font-size: 1rem; /* Tailwind 'text-base' equivalent */
+            }
+
+            /* Adjust padding for modal buttons if they look too cramped */
+            .modal-content .flex.justify-end button {
+                padding: 0.5rem 0.75rem; /* Tailwind 'px-3 py-2' equivalent */
+                font-size: 0.875rem; /* Tailwind 'text-sm' */
+            }
+
+            /* Ensure textareas and inputs are easily usable */
+            .modal-content textarea,
+            .modal-content input[type="url"],
+            .modal-content input[type="text"] { /* Assuming text inputs could be added */
+                font-size: 0.875rem; /* Tailwind 'text-sm' */
+            }
+
+            #contextMenu, #fileContextMenu {
+                min-width: 0; /* Remove fixed min-width */
+                width: 80vw;   /* Make them take a good portion of the screen */
+                max-width: 300px; /* But not too wide */
+                font-size: 0.875rem; /* Tailwind 'text-sm', ensure it's not too large */
+            }
+
+            .context-menu-item, .submenu-item {
+                padding: 0.6rem 0.8rem; /* Slightly adjust padding */
+                font-size: 0.875rem; /* Ensure consistent font size */
+            }
+            .context-menu-item > i:first-child:not(.fa-caret-right):not(.fa-caret-left),
+            .submenu-item > i {
+                margin-right: 0.5em; /* Slightly reduce icon margin */
+            }
+
+            /* Submenu positioning - this is the tricky part */
+            /* On small screens, make submenus open downwards by default */
+            .submenu-content {
+                left: 0 !important; /* Align to the left of the parent item, ensure override */
+                right: auto !important; /* Ensure override */
+                top: 100%; /* Position below the parent item */
+                width: 100%; /* Make submenu as wide as the parent menu */
+                border-top: 1px solid #4a5568; /* Add a separator */
+                position: absolute; /* Keep absolute for proper layering */
+                /* left: 0; is already specified and important */
+                /* top: 100%; is already specified */
+                z-index: 1002; /* Ensure submenu is above its parent menu item, but below potential other higher-level elements if any */
+            }
+            
+            /* This rule might be problematic if JS relies on it for positioning logic.
+               If submenus are always meant to open downwards on mobile, this might not be needed,
+               or JS needs to be mobile-aware. For now, we override: */
+            .submenu-content.submenu-left {
+                left: 0 !important; /* Override existing submenu-left for mobile */
+                right: auto !important;
+                top: 100%;
+            }
+        }
     </style>
 </head>
 <body class="dark bg-slate-900 text-gray-200 flex flex-col h-screen overflow-hidden" v-cloak>
@@ -183,107 +253,143 @@
         <div v-if="contextMenu.visible" id="contextMenu" ref="contextMenuElement"
             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
             <template v-if="contextMenu.nodeId && findNodeById(contextMenu.nodeId)">
-                <div @click="addNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-plus"></i> Ajouter enfant</div>
+                <!-- Core Actions -->
                 <div @click="openTextEditModal(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-pencil-alt"></i> Modifier texte</div>
-                <div @click="triggerImageUpload(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-image"></i> {{ findNodeById(contextMenu.nodeId).imageUrl ? 'Modifier' : 'Ajouter' }} image</div>
-                <div @click="openHyperlinkModal(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-link"></i> {{ findNodeById(contextMenu.nodeId).hyperlink ? 'Modifier' : 'Ajouter' }} lien</div>
+                <div @click="addNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-plus"></i> Ajouter enfant</div>
+                
                 <div class="context-menu-separator"></div>
-                 <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                    <i class="fas fa-icons"></i> Icône ({{ getNodeIconPreview(findNodeById(contextMenu.nodeId).icon) }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+
+                <!-- Content & Links -->
+                <div @click="triggerImageUpload(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-image"></i> Image...</div>
+                <div @click="openHyperlinkModal(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-link"></i> Lien hypertexte...</div>
+                
+                <div class="context-menu-separator"></div>
+
+                <!-- Structuring & Hierarchy -->
+                <div @click="startLinking(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-people-arrows"></i> Connecter à un autre nœud...</div>
+                <template v-if="findNodeById(contextMenu.nodeId).parentId !== null">
+                    <div @click="detachNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-unlink"></i> Détacher du parent</div>
+                </template>
+
+                <div class="context-menu-separator"></div>
+                
+                <!-- Node Appearance Submenu -->
+                <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                    <i class="fas fa-paint-brush"></i> Apparence du nœud <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
                     <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                        <div @click="setNodeProperty(contextMenu.nodeId, 'icon', null)"
-                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', null)"
-                             class="submenu-item"><i class="fas fa-ban"></i> Aucune <i v-if="!findNodeById(contextMenu.nodeId).icon" class="fas fa-check ml-2 text-blue-500"></i></div>
-                        <div v-for="icon in availableIcons" :key="icon.name"
-                             @click="setNodeProperty(contextMenu.nodeId, 'icon', icon.class)"
-                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', icon.class)"
-                             class="submenu-item">
-                            <i :class="icon.class"></i> {{ icon.name }} <i v-if="findNodeById(contextMenu.nodeId).icon === icon.class" class="fas fa-check ml-2 text-blue-500"></i>
+                        <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                            <i class="fas fa-shapes"></i> Forme du nœud ({{ findNodeById(contextMenu.nodeId).shape || 'rectangle' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                            <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                <div v-for="shape in NODE_SHAPES" :key="shape"
+                                     @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'shape', shape)"
+                                     @click="setNodeProperty(contextMenu.nodeId, 'shape', shape)"
+                                     class="submenu-item">
+                                    <i :class="getNodeShapeIcon(shape)"></i> {{ shape.charAt(0).toUpperCase() + shape.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).shape === shape" class="fas fa-check ml-2 text-blue-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                            <i class="fas fa-border-style"></i> Style de bordure ({{ $filters.capitalize(findNodeById(contextMenu.nodeId).borderStyle || 'solid') }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                            <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                <div v-for="style in availableBorderStyles" :key="style.value"
+                                     @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderStyle', style.value)"
+                                     @click="setNodeProperty(contextMenu.nodeId, 'borderStyle', style.value)"
+                                     class="submenu-item">
+                                    {{ style.name }} <i v-if="(findNodeById(contextMenu.nodeId).borderStyle || 'solid') === style.value" class="fas fa-check ml-2 text-blue-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                            <i class="fas fa-ruler-horizontal"></i> Épaisseur de bordure ({{ findNodeById(contextMenu.nodeId).borderWidth || 1 }}px) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                            <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                <div v-for="width in [1, 2, 3, 4, 5]" :key="width"
+                                     @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderWidth', width)"
+                                     @click="setNodeProperty(contextMenu.nodeId, 'borderWidth', width)"
+                                     class="submenu-item">
+                                    {{ width }}px <i v-if="(findNodeById(contextMenu.nodeId).borderWidth || 1) === width" class="fas fa-check ml-2 text-blue-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                            <i class="fas fa-icons"></i> Icône du nœud ({{ getNodeIconPreview(findNodeById(contextMenu.nodeId).icon) }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                            <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                <div @click="setNodeProperty(contextMenu.nodeId, 'icon', null)"
+                                     @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', null)"
+                                     class="submenu-item"><i class="fas fa-ban"></i> Aucune <i v-if="!findNodeById(contextMenu.nodeId).icon" class="fas fa-check ml-2 text-blue-500"></i></div>
+                                <div v-for="icon in availableIcons" :key="icon.name"
+                                     @click="setNodeProperty(contextMenu.nodeId, 'icon', icon.class)"
+                                     @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', icon.class)"
+                                     class="submenu-item">
+                                    <i :class="icon.class"></i> {{ icon.name }} <i v-if="findNodeById(contextMenu.nodeId).icon === icon.class" class="fas fa-check ml-2 text-blue-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div @click="() => { $refs.nodeBgColorPickerFromContext.click(); hideContextMenu(); }" class="submenu-item">
+                            <i class="fas fa-palette"></i> Couleur du fond
+                            <input type="color" ref="nodeBgColorPickerFromContext" v-model="selectedNodeBgColor" @input="handleNodeBgColorChange" class="hidden" :disabled="!selectedNodeId">
+                        </div>
+                        <div @click="() => { $refs.nodeTextColorPickerFromContext.click(); hideContextMenu(); }" class="submenu-item">
+                            <i class="fas fa-font"></i> Couleur du texte
+                             <input type="color" ref="nodeTextColorPickerFromContext" v-model="selectedNodeTextColor" @input="handleNodeTextColorChange" class="hidden" :disabled="!selectedNodeId">
                         </div>
                     </div>
                 </div>
-                <div class="context-menu-separator"></div>
+
+                <!-- Connection Styling Submenu (conditional) -->
                 <template v-if="findNodeById(contextMenu.nodeId).parentId !== null">
-                    <div @click="detachNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-unlink"></i> Détacher du parent</div>
+                    <div class="context-menu-separator"></div>
                     <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                        <i class="fas fa-sign-in-alt"></i> Connecter à ({{ findNodeById(contextMenu.nodeId).entryPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                        <i class="fas fa-bezier-curve"></i> Style de connexion <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
                         <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                            <div v-for="point in CONNECTION_POINTS" :key="point"
-                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'entryPoint', point)"
-                                 @click="setNodeProperty(contextMenu.nodeId, 'entryPoint', point)"
-                                 class="submenu-item">
-                                {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).entryPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                            <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                                <i class="fas fa-sign-in-alt"></i> Point d'entrée ({{ findNodeById(contextMenu.nodeId).entryPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                                <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                    <div v-for="point in CONNECTION_POINTS" :key="point"
+                                         @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'entryPoint', point)"
+                                         @click="setNodeProperty(contextMenu.nodeId, 'entryPoint', point)"
+                                         class="submenu-item">
+                                        {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).entryPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                     <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                        <i class="fas fa-sign-out-alt"></i> Sortie parent ({{ findNodeById(contextMenu.nodeId).parentExitPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
-                        <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                            <div v-for="point in CONNECTION_POINTS" :key="point"
-                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'parentExitPoint', point)"
-                                 @click="setNodeProperty(contextMenu.nodeId, 'parentExitPoint', point)"
-                                 class="submenu-item">
-                                {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).parentExitPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                            <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                                <i class="fas fa-sign-out-alt"></i> Point de sortie ({{ findNodeById(contextMenu.nodeId).parentExitPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                                <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                    <div v-for="point in CONNECTION_POINTS" :key="point"
+                                         @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'parentExitPoint', point)"
+                                         @click="setNodeProperty(contextMenu.nodeId, 'parentExitPoint', point)"
+                                         class="submenu-item">
+                                        {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).parentExitPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                     <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                        <i class="fas fa-link"></i> Type de lien ({{ findNodeById(contextMenu.nodeId).connectionType || 'solid' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
-                        <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                            <div v-for="type in CONNECTION_TYPES" :key="type"
-                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'connectionType', type)"
-                                 @click="setNodeProperty(contextMenu.nodeId, 'connectionType', type)"
-                                 class="submenu-item">
-                                <span class="link-indicator">{{ getConnectionTypeIndicator(type) }}</span> {{ type.charAt(0).toUpperCase() + type.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).connectionType === type" class="fas fa-check ml-2 text-blue-500"></i>
+                            <div class="submenu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                                <i class="fas fa-link"></i> Type de lien ({{ findNodeById(contextMenu.nodeId).connectionType || 'solid' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                                <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                                    <div v-for="type in CONNECTION_TYPES" :key="type"
+                                         @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'connectionType', type)"
+                                         @click="setNodeProperty(contextMenu.nodeId, 'connectionType', type)"
+                                         class="submenu-item">
+                                        <span class="link-indicator">{{ getConnectionTypeIndicator(type) }}</span> {{ type.charAt(0).toUpperCase() + type.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).connectionType === type" class="fas fa-check ml-2 text-blue-500"></i>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </template>
-                 <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                    <i class="fas fa-shapes"></i> Forme ({{ findNodeById(contextMenu.nodeId).shape || 'rectangle' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
-                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                        <div v-for="shape in NODE_SHAPES" :key="shape"
-                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'shape', shape)"
-                             @click="setNodeProperty(contextMenu.nodeId, 'shape', shape)"
-                             class="submenu-item">
-                            <i :class="getNodeShapeIcon(shape)"></i> {{ shape.charAt(0).toUpperCase() + shape.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).shape === shape" class="fas fa-check ml-2 text-blue-500"></i>
-                        </div>
-                    </div>
-                </div>
-                <div @click="startLinking(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-people-arrows"></i> Connecter à un autre...</div>
+
                 <div class="context-menu-separator"></div>
-                <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                    <i class="fas fa-border-style"></i> Style bordure ({{ $filters.capitalize(findNodeById(contextMenu.nodeId).borderStyle || 'solid') }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
-                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                        <div v-for="style in availableBorderStyles" :key="style.value"
-                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderStyle', style.value)"
-                             @click="setNodeProperty(contextMenu.nodeId, 'borderStyle', style.value)"
-                             class="submenu-item">
-                            {{ style.name }} <i v-if="(findNodeById(contextMenu.nodeId).borderStyle || 'solid') === style.value" class="fas fa-check ml-2 text-blue-500"></i>
-                        </div>
-                    </div>
-                </div>
-                <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
-                    <i class="fas fa-ruler-horizontal"></i> Épaisseur bordure ({{ findNodeById(contextMenu.nodeId).borderWidth || 1 }}px) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
-                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
-                        <div v-for="width in [1, 2, 3, 4, 5]" :key="width"
-                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderWidth', width)"
-                             @click="setNodeProperty(contextMenu.nodeId, 'borderWidth', width)"
-                             class="submenu-item">
-                            {{ width }}px <i v-if="(findNodeById(contextMenu.nodeId).borderWidth || 1) === width" class="fas fa-check ml-2 text-blue-500"></i>
-                        </div>
-                    </div>
-                </div>
+
+                <!-- Destructive Action -->
+                <div @click="requestDeleteNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-trash-alt"></i> Supprimer le nœud</div>
+            </template>
+            <template v-else> <!-- Canvas Context Menu -->
+                 <div v-if="!hasRootNode" @click="addRootNode(); hideContextMenu();" class="context-menu-item"><i class="fas fa-circle-notch"></i> Créer concept central</div>
+                <div @click="addNodeAtPosition(contextMenu.rawX, contextMenu.rawY)" class="context-menu-item"><i class="fas fa-plus-circle"></i> Ajouter nœud ici</div>
                 <div class="context-menu-separator"></div>
-                <div @click="requestDeleteNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-trash-alt"></i> Supprimer nœud</div>
-                <div class="context-menu-separator"></div>
-                <div @click="() => { $refs.nodeBgColorPickerFromContext.click(); hideContextMenu(); }" class="context-menu-item">
-                    <i class="fas fa-palette"></i> Changer fond
-                    <input type="color" ref="nodeBgColorPickerFromContext" v-model="selectedNodeBgColor" @input="handleNodeBgColorChange" class="hidden" :disabled="!selectedNodeId">
-                </div>
-                <div @click="() => { $refs.nodeTextColorPickerFromContext.click(); hideContextMenu(); }" class="context-menu-item">
-                    <i class="fas fa-font"></i> Changer texte
-                     <input type="color" ref="nodeTextColorPickerFromContext" v-model="selectedNodeTextColor" @input="handleNodeTextColorChange" class="hidden" :disabled="!selectedNodeId">
+                <div @click="resetView(); hideContextMenu();" class="context-menu-item"><i class="fas fa-crosshairs"></i> Centrer vue</div>
+                <div @click="zoom(1.2); hideContextMenu();" class="context-menu-item"><i class="fas fa-search-plus"></i> Zoom avant</div>
+                <div @click="zoom(0.8); hideContextMenu();" class="context-menu-item"><i class="fas fa-search-minus"></i> Zoom arrière</div>
                 </div>
             </template>
             <template v-else>
@@ -443,6 +549,20 @@
                     CONNECTION_POINTS: CONNECTION_POINTS, CONNECTION_TYPES: CONNECTION_TYPES, NODE_SHAPES: NODE_SHAPES,
                     previewConnectionSide: null,
                     autosaveIntervalId: null,
+                    // Touch event handling
+                    longPressTimer: null,
+                    touchStartTime: 0,
+                    initialTouchPos: { x: 0, y: 0, screenX: 0, screenY: 0 }, // For single touch
+                    lastTouchPos: { x: 0, y: 0, screenX: 0, screenY: 0 }, // For single touch delta calculation
+                    initialPinchDistance: 0,
+                    isPinching: false,
+                    isTouchPanning: false,
+                    isTouchDraggingNode: false,
+                    touchMoveThreshold: 10, // Pixels
+                    longPressDuration: 500, // ms
+                    doubleTapThreshold: 300, // ms for double tap
+                    lastTapTime: 0,
+                    lastTapNodeId: null,
                 }
             },
             computed: {
@@ -513,9 +633,24 @@
                     this.contextMenu.visible = false;
                     this.fileMenu.visible = false;
                 });
+
+                const canvas = this.$refs.mindMapCanvas;
+                if (canvas) {
+                    canvas.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+                    canvas.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+                    canvas.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+                    canvas.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
+                }
             },
             beforeUnmount() {
                 window.removeEventListener('resize', this.resizeCanvas);
+                const canvas = this.$refs.mindMapCanvas;
+                if (canvas) {
+                    canvas.removeEventListener('touchstart', this.handleTouchStart);
+                    canvas.removeEventListener('touchmove', this.handleTouchMove);
+                    canvas.removeEventListener('touchend', this.handleTouchEnd);
+                    canvas.removeEventListener('touchcancel', this.handleTouchEnd);
+                }
                 document.removeEventListener('click', this.handleGlobalClick);
                 document.removeEventListener('keydown', this.handleGlobalKeyDown);
                 if (this.autosaveIntervalId) {
@@ -871,8 +1006,19 @@
                     this.potentialDropTargetId = null;
                     this.draggingConnectionEnd = null;
                     this.potentialEndPoint = null;
-                    this.cancelDragLinking();
+                    this.cancelDragLinking(); // This handles isDraggingLink, linkDragStartNodeId, linkDragEndPos
                     this.potentialLinkTargetId = null;
+
+                    // Reset touch-specific states
+                    clearTimeout(this.longPressTimer);
+                    this.longPressTimer = null;
+                    this.isPinching = false;
+                    this.isTouchPanning = false;
+                    this.isTouchDraggingNode = false;
+                    this.initialPinchDistance = 0;
+                    // this.lastTapTime = 0; // Keep lastTapTime for double tap detection
+                    // this.lastTapNodeId = null; // Keep for double tap detection
+                    // initialTouchPos and lastTouchPos will be reset on next touchstart
                 },
                 addInitialNode() {
                     const canvas = this.$refs.mindMapCanvas;
@@ -1062,6 +1208,11 @@
                 cancelLinking() { this.isLinking = false; this.linkStartNodeId = null; },
                 cancelDragLinking() { this.isDraggingLink = false; this.linkDragStartNodeId = null; this.linkDragEndPos = null; this.potentialLinkTargetId = null; },
                 handleMouseDown(e) {
+                    // Prevent mouse events if a touch interaction is active or just finished
+                    if (this.isPinching || this.isTouchPanning || this.isTouchDraggingNode || (Date.now() - this.touchStartTime < 50) /* Debounce for emulated mouse events after touch */) {
+                        // e.preventDefault(); // Not strictly necessary if just returning
+                        return;
+                    }
                     const contextMenuEl = this.$refs.contextMenuElement;
                     if (this.contextMenu.visible && (!contextMenuEl || !contextMenuEl.contains(e.target))) {
                         this.hideContextMenu();
@@ -1092,6 +1243,8 @@
                     else { this.isPanning = true; this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY }; this.$refs.mindMapCanvas.style.cursor = 'grabbing'; if (this.selectedNodeId !== null) this.selectedNodeId = null; }
                 },
                 handleMouseMove(e) {
+                    if (this.isPinching || this.isTouchPanning || this.isTouchDraggingNode) return; // Prevent interference from touch
+
                     const pos = this.getMousePos(e);
                     this.lastMousePos = { clientX: e.clientX, clientY: e.clientY };
                     if (this.isLinking) { return; }
@@ -1163,6 +1316,13 @@
                     if (this.$refs.mindMapCanvas.style.cursor !== newCursor && !this.isDraggingLink && !this.isPanning && !this.isDragging) { this.$refs.mindMapCanvas.style.cursor = newCursor; }
                 },
                 handleMouseUp(e) {
+                    if (this.isPinching || this.isTouchPanning || this.isTouchDraggingNode) {
+                        // If a touch operation was active, mouseup should not trigger its logic.
+                        // However, we might want to ensure interaction states are reset if a touch operation just finished.
+                        // The touchend handler should ideally manage the final state reset.
+                        return;
+                    }
+
                     const wasDragging = this.isDragging; let stateChanged = false;
                     
                     if (this.isDraggingLink) {
@@ -1261,21 +1421,99 @@
                     if (!this.isDraggingLink && !this.isDragging && !this.isPanning) { const nodeOver = this.getNodeAtPos(currentPos.x, currentPos.y); const connOver = this.getHoveredConnectionId(currentPos); const connEndOver = this.getClickedConnectionEnd(currentPos); if (nodeOver || connOver || connEndOver) this.$refs.mindMapCanvas.style.cursor = 'pointer'; else this.$refs.mindMapCanvas.style.cursor = 'grab'; }
                 },
                 handleMouseOut(e) { const canvas = this.$refs.mindMapCanvas; if (canvas && !canvas.contains(e.relatedTarget)) { this.resetInteractionStates(); this.hoveredConnectionId = null; this.hoveredNodeId = null; if(this.$refs.mindMapCanvas) this.$refs.mindMapCanvas.style.cursor = 'grab'; } },
-                handleDoubleClick(e) { if (this.isLinking || this.isDraggingLink || this.getClickedConnectionEnd(this.getMousePos(e))) return; this.hideContextMenu(); const pos = this.getMousePos(e); const clickedNode = this.getNodeAtPos(pos.x, pos.y); if (clickedNode) { this.selectedNodeId = clickedNode.id; let iconAreaXStart = clickedNode.x + 5; let clickedOnLink = false; if (clickedNode.icon) iconAreaXStart += ICON_SIZE + 5; if (clickedNode.hyperlink) { const linkIconX = iconAreaXStart; const linkIconWidth = ICON_SIZE; if (pos.x >= linkIconX && pos.x <= linkIconX + linkIconWidth && pos.y >= clickedNode.y + clickedNode.height/2 - ICON_SIZE/2 && pos.y <= clickedNode.y + clickedNode.height/2 + ICON_SIZE/2) { clickedOnLink = true; } } if (clickedOnLink) { window.open(clickedNode.hyperlink, '_blank'); return; } if (clickedNode.imageUrl) this.showImagePreview(clickedNode.imageUrl); else this.openTextEditModal(clickedNode.id); } },
-                handleWheel(e) { if (this.isLinking || this.isDraggingLink) return; this.hideContextMenu(); const oldScale = this.scale; const delta = e.deltaY > 0 ? 0.9 : 1.1; this.zoom(delta, e.clientX, e.clientY); if (this.scale !== oldScale) this.recordHistory("Zoom View"); },
-                zoom(factor, clientX, clientY) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const rect = canvas.getBoundingClientRect(); const mx = clientX !== undefined ? clientX - rect.left : canvas.width / 2; const my = clientY !== undefined ? clientY - rect.top : canvas.height / 2; const wxBefore = (mx - this.offsetX) / this.scale; const wyBefore = (my - this.offsetY) / this.scale; const newScale = Math.max(0.1, Math.min(this.scale * factor, 5)); this.offsetX = mx - wxBefore * newScale; this.offsetY = my - wyBefore * newScale; this.scale = newScale; },
+                    if (this.isLinking || this.isDraggingLink || this.getClickedConnectionEnd(this.getMousePos(e))) return; 
+                    // Prevent double-click from text selection if it's part of a node interaction
+                    if (this.getNodeAtPos(this.getMousePos(e).x, this.getMousePos(e).y)) {
+                        // e.preventDefault(); // This might be too aggressive, let's see
+                    }
+                    this.hideContextMenu(); 
+                    const pos = this.getMousePos(e); 
+                    const clickedNode = this.getNodeAtPos(pos.x, pos.y); 
+                    if (clickedNode) { 
+                        this.selectedNodeId = clickedNode.id; 
+                        let iconAreaXStart = clickedNode.x + 5; 
+                        let clickedOnLink = false; 
+                        if (clickedNode.icon) iconAreaXStart += ICON_SIZE + 5; 
+                        if (clickedNode.hyperlink) { 
+                            const linkIconX = iconAreaXStart; 
+                            const linkIconWidth = ICON_SIZE; 
+                            if (pos.x >= linkIconX && pos.x <= linkIconX + linkIconWidth && 
+                                pos.y >= clickedNode.y + clickedNode.height/2 - ICON_SIZE/2 && 
+                                pos.y <= clickedNode.y + clickedNode.height/2 + ICON_SIZE/2) { 
+                                clickedOnLink = true; 
+                            } 
+                        } 
+                        if (clickedOnLink) { 
+                            window.open(clickedNode.hyperlink, '_blank'); return; 
+                        } 
+                        // For mouse, double click directly opens image or text modal.
+                        // For touch, this is handled by double tap in handleTouchEnd.
+                        if (clickedNode.imageUrl) this.showImagePreview(clickedNode.imageUrl); 
+                        else this.openTextEditModal(clickedNode.id); 
+                    } 
+                },
+                handleWheel(e) { 
+                    if (this.isLinking || this.isDraggingLink || this.isPinching || this.isTouchPanning || this.isTouchDraggingNode) return; 
+                    this.hideContextMenu(); 
+                    const oldScale = this.scale; 
+                    const delta = e.deltaY > 0 ? 0.9 : 1.1; 
+                    this.zoom(delta, e.clientX, e.clientY); 
+                    if (this.scale !== oldScale && this.nodes.length > 0) this.recordHistory("Zoom View (Wheel)"); 
+                },
+                zoom(factor, clientX, clientY) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const rect = canvas.getBoundingClientRect(); const mx = clientX !== undefined ? clientX - rect.left : canvas.width / 2; const my = clientY !== undefined ? clientY - rect.top : canvas.height / 2; const wxBefore = (mx - this.offsetX) / this.scale; const wyBefore = (my - this.offsetY) / this.scale; const oldScale = this.scale; const newScale = Math.max(0.1, Math.min(this.scale * factor, 5)); if (oldScale === newScale) return; this.offsetX = mx - wxBefore * newScale; this.offsetY = my - wyBefore * newScale; this.scale = newScale; },
                 resetView() { this.hideContextMenu(); const oldView = {ox: this.offsetX, oy: this.offsetY, sc: this.scale}; if (this.nodes.length > 0) { const firstNode = this.nodes.find(n => n.parentId === null) || this.nodes[0]; if (firstNode) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const newScale = 1; this.scale = newScale; this.offsetX = canvas.width / 2 - (firstNode.x + firstNode.width / 2) * newScale; this.offsetY = canvas.height / 2 - (firstNode.y + firstNode.height / 2) * newScale; } } else { this.scale = 1; this.offsetX = 0; this.offsetY = 0; } if(oldView.ox !== this.offsetX || oldView.oy !== this.offsetY || oldView.sc !== this.scale) this.recordHistory("Reset View"); },
                 handleContextMenu(e) {
-                    this.hideContextMenu();
+                    // If called from touch, e might be our mock event.
+                    // If called from mouse, e is a standard MouseEvent.
+                    if (this.isPinching || this.isTouchPanning || this.isTouchDraggingNode) return; // Don't show context menu during touch gestures
+                    this.hideContextMenu(); // Hide previous one first
                     if(this.fileMenu.visible) this.fileMenu.visible = false;
                     if (this.isLinking || this.isDraggingLink || this.draggingConnectionEnd) return;
-                    const pos = this.getMousePos(e);
+                    
+                    const clientX = e.clientX; // Already adapted for touch in handleTouchStart
+                    const clientY = e.clientY;
+
+                    const pos = this.getMousePos({clientX, clientY}); // Use adapted clientX/Y
                     const clickedNode = this.getNodeAtPos(pos.x, pos.y);
-                    if (clickedNode && this.selectedNodeId !== clickedNode.id) this.selectedNodeId = clickedNode.id;
-                    this.contextMenu = { visible: true, x: e.clientX, y: e.clientY, nodeId: clickedNode ? clickedNode.id : null, rawX: pos.x, rawY: pos.y };
+
+                    if (clickedNode && this.selectedNodeId !== clickedNode.id) {
+                        this.selectedNodeId = clickedNode.id;
+                         if (!this.isTouchPanning && !this.isTouchDraggingNode) { // Avoid recording history if context menu is from a long press during a potential gesture
+                            this.recordHistory("Select Node (Context Menu)");
+                        }
+                    }
+                    this.contextMenu = { visible: true, x: clientX, y: clientY, nodeId: clickedNode ? clickedNode.id : null, rawX: pos.x, rawY: pos.y };
                     this.$nextTick(() => { this.adjustContextMenuPosition(); });
                 },
-                adjustContextMenuPosition() { const menuEl = this.$refs.contextMenuElement; if (menuEl) { const menuWidth = menuEl.offsetWidth; const menuHeight = menuEl.offsetHeight; let newX = this.contextMenu.x; let newY = this.contextMenu.y; if (newX + menuWidth > window.innerWidth) newX = window.innerWidth - menuWidth - 5; if (newY + menuHeight > window.innerHeight) newY = window.innerHeight - menuHeight - 5; if (newX < 0) newX = 5; if (newY < 0) newY = 5; this.contextMenu.x = newX; this.contextMenu.y = newY; } },
+                adjustContextMenuPosition() { 
+                    const menuEl = this.$refs.contextMenuElement; 
+                    if (menuEl) { 
+                        const menuWidth = menuEl.offsetWidth; 
+                        const menuHeight = menuEl.offsetHeight; 
+                        let newX = this.contextMenu.x; 
+                        let newY = this.contextMenu.y; 
+                        // Ensure menu is not positioned off-screen, considering potential submenu expansion
+                        // For mobile, submenus open downwards, so primarily check bottom and right edges.
+                        const submenuWidthEstimate = (window.innerWidth <= 640) ? 0 : 180; // No horizontal submenu on mobile
+                        
+                        if (newX + menuWidth + submenuWidthEstimate > window.innerWidth) {
+                            newX = window.innerWidth - menuWidth - (submenuWidthEstimate > 0 ? 5 : 0) - 5 ; // Adjust for potential submenu too
+                            if (submenuWidthEstimate > 0) { // If submenus can go left
+                                 // this.contextSubmenuOpenLeft = true; // This is a computed, can't set directly. Logic in computed should handle it.
+                            }
+                        }
+                         if (newX < 0) newX = 5;
+
+
+                        if (newY + menuHeight > window.innerHeight) {
+                            newY = window.innerHeight - menuHeight - 5;
+                        }
+                        if (newY < 0) newY = 5; 
+                        
+                        this.contextMenu.x = newX; 
+                        this.contextMenu.y = newY; 
+                    } 
+                },
                 hideContextMenu() { if (this.contextMenu.visible) this.contextMenu.visible = false; this.clearPreviewConnectionSide(); },
                 handleGlobalClick(event) {
                     const contextMenuEl = this.$refs.contextMenuElement;
@@ -1346,20 +1584,61 @@
 
                     try {
                         const resolvedNodes = await Promise.all(imageLoadPromises);
-                        this.nodes = resolvedNodes.filter(Boolean);
+                        const tempNodes = resolvedNodes.filter(Boolean);
+                        const nodeIds = new Set(tempNodes.map(n => n.id));
+                        let orphanedLinksFixed = 0;
+
+                        // Validate parentId and connection points
+                        tempNodes.forEach(node => {
+                            if (node.parentId !== null && !nodeIds.has(node.parentId)) {
+                                console.warn(`Node ID ${node.id} has orphaned parentId ${node.parentId}. Resetting parentId to null.`);
+                                node.parentId = null;
+                                node.parentExitPoint = null; // Clear potentially invalid exit point
+                                node.entryPoint = 'top'; // Reset entry point to a default
+                                orphanedLinksFixed++;
+                            }
+                            // Basic validation for connection points if parent exists
+                            if (node.parentId !== null) {
+                                if (!CONNECTION_POINTS.includes(node.entryPoint)) {
+                                    console.warn(`Node ID ${node.id} has invalid entryPoint ${node.entryPoint}. Resetting.`);
+                                    node.entryPoint = 'top'; // Default
+                                }
+                                if (!CONNECTION_POINTS.includes(node.parentExitPoint)) {
+                                     console.warn(`Node ID ${node.id} has invalid parentExitPoint ${node.parentExitPoint}. Resetting.`);
+                                    node.parentExitPoint = 'bottom'; // Default
+                                }
+                                // Ensure connectionType is valid
+                                if (node.connectionType && !CONNECTION_TYPES.includes(node.connectionType)){
+                                    console.warn(`Node ID ${node.id} has invalid connectionType ${node.connectionType}. Resetting to solid.`);
+                                    node.connectionType = 'solid';
+                                }
+                            }
+                             // Ensure shape is valid
+                            if (node.shape && !NODE_SHAPES.includes(node.shape)){
+                                console.warn(`Node ID ${node.id} has invalid shape ${node.shape}. Resetting to rectangle.`);
+                                node.shape = NODE_DEFAULT_SHAPE;
+                            }
+                        });
+
+                        this.nodes = tempNodes;
                         if (loadError) this.showError("Certaines images n'ont pas pu être chargées.");
+                        if (orphanedLinksFixed > 0) {
+                            this.showError(`${orphanedLinksFixed} lien(s) orphelin(s) ont été corrigés lors du chargement.`, 'info', 'Avertissement');
+                        }
+                        
                         this.selectedNodeId = this.nodes.length > 0 ? (this.nodes.find(n => n.parentId === null)?.id || this.nodes[0]?.id) : null;
 
                         if (loadedData.history && from !== "history_navigation") {
-                            this.history = loadedData.history;
+                            // Further validation could be done on history states if needed, but often it's better to trust history or simplify.
+                            this.history = loadedData.history; 
                             this.currentHistoryIndex = loadedData.currentHistoryIndex !== undefined ? loadedData.currentHistoryIndex : (loadedData.history.length > 0 ? loadedData.history.length - 1 : -1);
                         } else if (from !== "history_navigation" && this.nodes.length > 0) {
                              this.recordHistory("Load Map from " + from);
                         }
                         this.redrawCanvas();
                         loadSuccessful = true;
-                    } catch (error) {
-                        console.error("Error processing loaded images:", error);
+                    } catch (error) { // This catch is for Promise.all or general processing errors
+                        console.error("Error processing loaded data (images or structure):", error);
                         this.showError("Une erreur s'est produite lors du chargement des images de la carte.");
                         this.resetApplicationState();
                         loadSuccessful = false;
@@ -1435,10 +1714,264 @@
                 getConnectionTypeIndicator(type) { if (type === 'solid') return '⎯'; if (type === 'dashed') return '- -'; if (type === 'arrow') return '->'; return '?'; },
                 getConnectionPointCoords(node, pointName) { if (!node) return { x: 0, y: 0 }; const shape = node.shape || NODE_DEFAULT_SHAPE; const { x, y, width: w, height: h } = node; const cx = x + w / 2; const cy = y + h / 2; if (shape === 'rectangle' || shape === 'diamond') { switch (pointName) { case 'top': return { x: cx, y: y }; case 'bottom': return { x: cx, y: y + h }; case 'left': return { x: x, y: cy }; case 'right': return { x: x + w, y: cy }; default: return { x: cx, y: y }; } } else if (shape === 'ellipse') { const rx = w / 2; const ry = h / 2; if (rx <= 0 || ry <=0) return {x: cx, y: cy}; switch (pointName) { case 'top': return { x: cx, y: cy - ry }; case 'bottom': return { x: cx, y: cy + ry }; case 'left': return { x: cx - rx, y: cy }; case 'right': return { x: cx + rx, y: cy }; default: return { x: cx, y: cy - ry }; } } else if (shape === 'triangle') { switch (pointName) { case 'top': return { x: cx, y: y }; case 'bottom': return { x: cx, y: y + h }; case 'left': return { x: x + w * 0.25, y: y + h * 0.65 }; case 'right': return { x: x + w * 0.75, y: y + h * 0.65 }; default: return { x: cx, y: y }; } } return { x: cx, y: y }; },
                 isAncestor(potentialChildId, potentialParentId) { let currentId = potentialParentId; let visited = new Set(); while (currentId !== null) { if (visited.has(currentId)) return true; visited.add(currentId); const node = this.findNodeById(currentId); if (!node) return false; if (node.parentId === potentialChildId) return true; currentId = node.parentId; } return false; },
-                calculateDefaultConnectionPoints(parentNode, childNode) { const dx = (childNode.x + childNode.width / 2) - (parentNode.x + parentNode.width / 2); const dy = (childNode.y + childNode.height / 2) - (parentNode.y + parentNode.height / 2); if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? { parentExitPoint: 'right', entryPoint: 'left' } : { parentExitPoint: 'left', entryPoint: 'right' }; else return dy > 0 ? { parentExitPoint: 'bottom', entryPoint: 'top' } : { parentExitPoint: 'top', entryPoint: 'bottom' }; },
+                calculateDefaultConnectionPoints(parentNode, childNode) {
+                    const dx = (childNode.x + childNode.width / 2) - (parentNode.x + parentNode.width / 2);
+                    const dy = (childNode.y + childNode.height / 2) - (parentNode.y + parentNode.height / 2);
+                    const angle = Math.atan2(dy, dx); // Angle in radians
+
+                    let parentExitPoint, entryPoint;
+
+                    // Prioritize directness based on angle
+                    if (angle > -Math.PI / 4 && angle <= Math.PI / 4) { // Child is to the RIGHT of parent
+                        parentExitPoint = 'right'; entryPoint = 'left';
+                    } else if (angle > Math.PI / 4 && angle <= 3 * Math.PI / 4) { // Child is BELOW parent
+                        parentExitPoint = 'bottom'; entryPoint = 'top';
+                    } else if (angle > 3 * Math.PI / 4 || angle <= -3 * Math.PI / 4) { // Child is to the LEFT of parent
+                        parentExitPoint = 'left'; entryPoint = 'right';
+                    } else { // Child is ABOVE parent (angle > -3 * Math.PI / 4 && angle <= -Math.PI / 4)
+                        parentExitPoint = 'top'; entryPoint = 'bottom';
+                    }
+                    return { parentExitPoint, entryPoint };
+                },
                 getClickedConnectionEnd(pos) { const radius = CONNECTION_END_HOVER_RADIUS / this.scale; const radiusSq = radius * radius; for (const child of this.nodes) { if (child.parentId !== null) { const parent = this.findNodeById(child.parentId); if (parent) { const startCoords = this.getConnectionPointCoords(parent, child.parentExitPoint || 'bottom'); const endCoords = this.getConnectionPointCoords(child, child.entryPoint || 'top'); let dx1 = pos.x - startCoords.x; let dy1 = pos.y - startCoords.y; if (dx1 * dx1 + dy1 * dy1 <= radiusSq) return { childId: child.id, end: 'parentExit', nodeToAttach: parent }; let dx2 = pos.x - endCoords.x; let dy2 = pos.y - endCoords.y; if (dx2 * dx2 + dy2 * dy2 <= radiusSq) return { childId: child.id, end: 'childEntry', nodeToAttach: child }; } } } return null; },
                 getNodeWithImageIndicatorClick(wx, wy) { for (let i = this.nodes.length - 1; i >= 0; i--) { const n = this.nodes[i]; if (!n.imageUrl || !n.imageObj) continue; const rWorld = (IMAGE_INDICATOR_SIZE / 2); const indicatorScreenX = n.x + n.width - (IMAGE_INDICATOR_SIZE / 2); const indicatorScreenY = n.y + (IMAGE_INDICATOR_SIZE / 2); const dx = wx - indicatorScreenX; const dy = wy - indicatorScreenY; if (dx * dx + dy * dy <= rWorld * rWorld) return n; } return null; },
-                getHoveredConnectionId(pos) { const hoverDistThreshold = 5 / this.scale; const hoverDistThresholdSq = hoverDistThreshold * hoverDistThreshold; const numCheckPoints = 10; for (const child of this.nodes) { if (child.parentId !== null) { const parent = this.findNodeById(child.parentId); if (parent) { const startCoords = this.getConnectionPointCoords(parent, child.parentExitPoint || 'bottom'); const endCoords = this.getConnectionPointCoords(child, child.entryPoint || 'top'); const P0 = startCoords; const P3 = endCoords; let P1 = { ...P0 }, P2 = { ...P3 }; const fixedOffset = 50; switch (child.parentExitPoint || 'bottom') { case 'top': P1.y -= fixedOffset; break; case 'bottom': P1.y += fixedOffset; break; case 'left': P1.x -= fixedOffset; break; case 'right': P1.x += fixedOffset; break;} switch (child.entryPoint || 'top') { case 'top': P2.y -= fixedOffset; break; case 'bottom': P2.y += fixedOffset; break; case 'left': P2.x -= fixedOffset; break; case 'right': P2.x += fixedOffset; break;} for (let i = 1; i < numCheckPoints; i++) { const t = i / numCheckPoints; const mt = 1 - t; const x = mt*mt*mt*P0.x + 3*mt*mt*t*P1.x + 3*mt*t*t*P2.x + t*t*t*P3.x; const y = mt*mt*mt*P0.y + 3*mt*mt*t*P1.y + 3*mt*t*t*P2.y + t*t*t*P3.y; if ((pos.x - x) ** 2 + (pos.y - y) ** 2 <= hoverDistThresholdSq) return child.id; } } } } return null; }
+                getHoveredConnectionId(pos) { const hoverDistThreshold = 5 / this.scale; const hoverDistThresholdSq = hoverDistThreshold * hoverDistThreshold; const numCheckPoints = 10; for (const child of this.nodes) { if (child.parentId !== null) { const parent = this.findNodeById(child.parentId); if (parent) { const startCoords = this.getConnectionPointCoords(parent, child.parentExitPoint || 'bottom'); const endCoords = this.getConnectionPointCoords(child, child.entryPoint || 'top'); const P0 = startCoords; const P3 = endCoords; 
+                    // Use the dynamic offset logic for hover detection as well for accuracy
+                    let P1 = { x: P0.x, y: P0.y }; let P2 = { x: P3.x, y: P3.y };
+                    const dist = Math.sqrt(Math.pow(P3.x - P0.x, 2) + Math.pow(P3.y - P0.y, 2));
+                    let dynamicOffset = Math.max(20, Math.min(dist / 3, 120));
+                    let actualParentExitSide = child.parentExitPoint || 'bottom'; // Use actual stored points
+                    let actualChildEntrySide = child.entryPoint || 'top';
+
+                    switch (actualParentExitSide) { case 'top': P1.y -= dynamicOffset; break; case 'bottom': P1.y += dynamicOffset; break; case 'left': P1.x -= dynamicOffset; break; case 'right': P1.x += dynamicOffset; break;}
+                    switch (actualChildEntrySide) { case 'top': P2.y -= dynamicOffset; break; case 'bottom': P2.y += dynamicOffset; break; case 'left': P2.x -= dynamicOffset; break; case 'right': P2.x += dynamicOffset; break;}
+                    for (let i = 1; i < numCheckPoints; i++) { const t = i / numCheckPoints; const mt = 1 - t; const x = mt*mt*mt*P0.x + 3*mt*mt*t*P1.x + 3*mt*t*t*P2.x + t*t*t*P3.x; const y = mt*mt*mt*P0.y + 3*mt*mt*t*P1.y + 3*mt*t*t*P2.y + t*t*t*P3.y; if ((pos.x - x) ** 2 + (pos.y - y) ** 2 <= hoverDistThresholdSq) return child.id; } } } } return null; },
+
+                // TOUCH EVENT HANDLERS
+                getTouchPos(touch, canvasEl = this.$refs.mindMapCanvas) {
+                    if (!canvasEl) return { x: 0, y: 0, screenX: touch.clientX, screenY: touch.clientY };
+                    const rect = canvasEl.getBoundingClientRect();
+                    const mx = touch.clientX - rect.left;
+                    const my = touch.clientY - rect.top;
+                    return {
+                        x: (mx - this.offsetX) / this.scale,
+                        y: (my - this.offsetY) / this.scale,
+                        screenX: touch.clientX, // Raw screen X for distance calcs
+                        screenY: touch.clientY  // Raw screen Y for distance calcs
+                    };
+                },
+
+                handleTouchStart(e) {
+                    e.preventDefault(); // Important to prevent page scroll, double-tap zoom etc.
+                    this.hideContextMenu(); // Hide any visible context menu
+
+                    const touches = e.touches;
+                    if (touches.length === 1) {
+                        const touch = touches[0];
+                        this.initialTouchPos = this.getTouchPos(touch);
+                        this.lastTouchPos = { ...this.initialTouchPos }; // Store for delta calculations
+                        this.touchStartTime = Date.now();
+                        this.isTouchPanning = false;
+                        this.isTouchDraggingNode = false;
+                        this.isPinching = false; // Ensure pinch is reset
+
+                        const clickedNode = this.getNodeAtPos(this.initialTouchPos.x, this.initialTouchPos.y);
+                        if (clickedNode) {
+                            this.draggedNodeId = clickedNode.id; // Tentatively set for dragging
+                            // Don't set selectedNodeId yet, wait for touchend for tap, or touchmove for drag
+                        } else {
+                            this.draggedNodeId = null;
+                        }
+
+                        // Long press for context menu
+                        clearTimeout(this.longPressTimer); // Clear any existing timer
+                        this.longPressTimer = setTimeout(() => {
+                            if (!this.isTouchDraggingNode && !this.isTouchPanning && !this.isPinching) { // Ensure no movement or pinch
+                                const posForContextMenu = this.getTouchPos(e.touches[0]); // Use current touch if available
+                                const nodeForContext = this.getNodeAtPos(posForContextMenu.x, posForContextMenu.y);
+                                
+                                // Adapt touch event to look like a mouse event for handleContextMenu
+                                const mockMouseEvent = {
+                                    clientX: e.touches[0].clientX,
+                                    clientY: e.touches[0].clientY,
+                                    preventDefault: () => {}, // Mock preventDefault
+                                    // other properties if handleContextMenu expects them
+                                };
+                                this.handleContextMenu(mockMouseEvent);
+                            }
+                        }, this.longPressDuration);
+
+                    } else if (touches.length === 2) {
+                        clearTimeout(this.longPressTimer); // Cancel long press if it was initiated
+                        this.isPinching = true;
+                        this.isTouchPanning = false;
+                        this.isTouchDraggingNode = false;
+                        this.draggedNodeId = null;
+
+                        const touch1 = this.getTouchPos(touches[0]);
+                        const touch2 = this.getTouchPos(touches[1]);
+                        const dx = touch1.screenX - touch2.screenX;
+                        const dy = touch1.screenY - touch2.screenY;
+                        this.initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
+                        this.panStart = { // For calculating pinch center
+                            x: (touches[0].clientX + touches[1].clientX) / 2,
+                            y: (touches[0].clientY + touches[1].clientY) / 2,
+                        };
+                    }
+                },
+
+                handleTouchMove(e) {
+                    e.preventDefault();
+                    const touches = e.touches;
+
+                    if (this.isPinching && touches.length === 2) {
+                        const touch1 = this.getTouchPos(touches[0]);
+                        const touch2 = this.getTouchPos(touches[1]);
+                        const dx = touch1.screenX - touch2.screenX;
+                        const dy = touch1.screenY - touch2.screenY;
+                        const currentPinchDistance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (this.initialPinchDistance > 0) {
+                            const scaleFactor = currentPinchDistance / this.initialPinchDistance;
+                            
+                            // Get center point for zooming
+                            const newPanStart = {
+                                x: (touches[0].clientX + touches[1].clientX) / 2,
+                                y: (touches[0].clientY + touches[1].clientY) / 2,
+                            };
+                            this.zoom(scaleFactor, newPanStart.x, newPanStart.y);
+                            this.initialPinchDistance = currentPinchDistance; // Update for next move
+                        }
+                    } else if (!this.isPinching && touches.length === 1) {
+                        const currentTouchPos = this.getTouchPos(touches[0]);
+                        const deltaX = currentTouchPos.screenX - this.initialTouchPos.screenX;
+                        const deltaY = currentTouchPos.screenY - this.initialTouchPos.screenY;
+                        
+                        // If moved beyond threshold, cancel long press
+                        if (Math.sqrt(deltaX * deltaX + deltaY * deltaY) > this.touchMoveThreshold) {
+                            clearTimeout(this.longPressTimer);
+                        }
+
+                        if (this.draggedNodeId && !this.isTouchPanning) { // Start dragging node
+                            this.isTouchDraggingNode = true;
+                            if (this.selectedNodeId !== this.draggedNodeId) {
+                                this.selectedNodeId = this.draggedNodeId;
+                            }
+                            const node = this.findNodeById(this.draggedNodeId);
+                            if (node) {
+                                const moveDeltaX = (currentTouchPos.screenX - this.lastTouchPos.screenX) / this.scale;
+                                const moveDeltaY = (currentTouchPos.screenY - this.lastTouchPos.screenY) / this.scale;
+                                
+                                this.prepareLinkAnimation(node);
+                                this.nodes.forEach(n => {
+                                    if (n.parentId === node.id) this.prepareLinkAnimation(n);
+                                });
+                                node.x += moveDeltaX;
+                                node.y += moveDeltaY;
+                                // Check for reparenting (potentialDropTargetId) - similar to handleMouseMove
+                                let currentPotentialTarget = null; let minDistanceSq = Infinity; const thresholdSq = (REPARENT_PROXIMITY_THRESHOLD / this.scale) ** 2; this.nodes.forEach(targetNode => { if (targetNode.id === this.draggedNodeId) return; const targetCenterX = targetNode.x + targetNode.width / 2; const targetCenterY = targetNode.y + targetNode.height / 2; const distSq = (currentTouchPos.x - targetCenterX) ** 2 + (currentTouchPos.y - targetCenterY) ** 2; if (distSq < minDistanceSq && distSq <= thresholdSq) { const draggedNodeData = this.findNodeById(this.draggedNodeId); if (draggedNodeData && targetNode.id !== draggedNodeData.parentId && !this.isAncestor(this.draggedNodeId, targetNode.id)) { minDistanceSq = distSq; currentPotentialTarget = targetNode.id; } } }); if (this.potentialDropTargetId !== currentPotentialTarget) this.potentialDropTargetId = currentPotentialTarget;
+
+                            }
+                        } else if (!this.draggedNodeId) { // Start panning
+                            this.isTouchPanning = true;
+                            this.offsetX += (currentTouchPos.screenX - this.lastTouchPos.screenX);
+                            this.offsetY += (currentTouchPos.screenY - this.lastTouchPos.screenY);
+                        }
+                        this.lastTouchPos = currentTouchPos;
+                    }
+                },
+
+                handleTouchEnd(e) {
+                    // e.preventDefault(); // Usually good, but can sometimes interfere with subsequent click events if not careful
+                    const currentTime = Date.now();
+                    const timeSinceTouchStart = currentTime - this.touchStartTime;
+                    
+                    const initialPos = this.initialTouchPos;
+                    let finalPos = {x:0,y:0};
+                    if(e.changedTouches && e.changedTouches.length > 0){
+                        finalPos = this.getTouchPos(e.changedTouches[0]);
+                    } else { // Fallback if changedTouches is not available (e.g. touchcancel)
+                        finalPos = this.lastTouchPos;
+                    }
+
+                    const deltaX = finalPos.screenX - initialPos.screenX;
+                    const deltaY = finalPos.screenY - initialPos.screenY;
+                    const distanceMoved = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                    clearTimeout(this.longPressTimer);
+
+                    if (this.isPinching) {
+                        if (e.touches.length < 2) { // Pinch ended
+                            this.isPinching = false;
+                            this.initialPinchDistance = 0;
+                            this.recordHistory("Pinch Zoom");
+                        }
+                    } else if (this.isTouchDraggingNode) {
+                        // Handle reparenting if potentialDropTargetId is set
+                        if (this.potentialDropTargetId) {
+                            const draggedNode = this.findNodeById(this.draggedNodeId);
+                            const targetNode = this.findNodeById(this.potentialDropTargetId);
+                            if (draggedNode && targetNode && draggedNode.id !== targetNode.id && draggedNode.parentId !== targetNode.id && !this.isAncestor(draggedNode.id, targetNode.id)) {
+                                this.prepareLinkAnimation(draggedNode);
+                                const calculatedPoints = this.calculateDefaultConnectionPoints(targetNode, draggedNode);
+                                draggedNode.parentId = targetNode.id; 
+                                draggedNode.parentExitPoint = calculatedPoints.parentExitPoint;
+                                if(!draggedNode.entryPoint || draggedNode.entryPoint === 'auto') { 
+                                    draggedNode.entryPoint = calculatedPoints.entryPoint; 
+                                }
+                                this.recordHistory("Reparent Node (Touch)");
+                            }
+                        } else {
+                             this.recordHistory("Drag Node (Touch)");
+                        }
+                        this.isTouchDraggingNode = false;
+                        this.draggedNodeId = null;
+                        this.potentialDropTargetId = null;
+
+                    } else if (this.isTouchPanning) {
+                        this.isTouchPanning = false;
+                        this.recordHistory("Pan Canvas (Touch)");
+
+                    } else if (distanceMoved < this.touchMoveThreshold && timeSinceTouchStart < this.longPressDuration) {
+                        // This is a Tap
+                        const tappedNode = this.getNodeAtPos(initialPos.x, initialPos.y);
+                        if (tappedNode) {
+                            this.selectedNodeId = tappedNode.id;
+                            // Double tap logic
+                            if (currentTime - this.lastTapTime < this.doubleTapThreshold && this.lastTapNodeId === tappedNode.id) {
+                                // This is a double tap on a node
+                                if (tappedNode.imageUrl) this.showImagePreview(tappedNode.imageUrl);
+                                else this.openTextEditModal(tappedNode.id);
+                                this.lastTapTime = 0; // Reset to prevent triple tap issues
+                                this.lastTapNodeId = null;
+                            } else {
+                                // This is a single tap
+                                this.recordHistory("Select Node (Touch Tap)");
+                                this.lastTapTime = currentTime;
+                                this.lastTapNodeId = tappedNode.id;
+                            }
+                        } else {
+                            // Tap on canvas (deselect)
+                            if(this.selectedNodeId) this.selectedNodeId = null;
+                            this.lastTapTime = 0;
+                            this.lastTapNodeId = null;
+                            this.recordHistory("Deselect Node (Touch Tap)");
+                        }
+                    }
+                    
+                    // Reset states if no touches are active
+                    if (e.touches.length === 0) {
+                        this.isPinching = false;
+                        this.isTouchPanning = false;
+                        this.isTouchDraggingNode = false;
+                        this.draggedNodeId = null;
+                        this.potentialDropTargetId = null;
+                        this.initialPinchDistance = 0;
+                    }
+                    // Reset interaction states generally to be safe
+                    this.resetInteractionStates(); // This already covers mouse states, ensure it's touch-aware or add touch resets
+                },
+                // Modify resetInteractionStates to include touch-specific properties
             }
         });
         app.config.globalProperties.$filters = {
