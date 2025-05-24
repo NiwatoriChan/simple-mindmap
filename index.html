@@ -624,14 +624,16 @@
                 }, AUTOSAVE_INTERVAL);
 
                 this.$nextTick(() => {
-                    this.isTextEditModalOpen = false;
-                    this.isHyperlinkModalOpen = false;
-                    this.isImagePreviewModalOpen = false;
-                    this.isDeleteConfirmModalOpen = false;
-                    this.isAboutModalOpen = false;
-                    this.isErrorModalOpen = false;
-                    this.contextMenu.visible = false;
-                    this.fileMenu.visible = false;
+                    // Modal visibility flags are already initialized to false in data().
+                    // Setting them here again is redundant for initial load.
+                    // this.isTextEditModalOpen = false;
+                    // this.isHyperlinkModalOpen = false;
+                    // this.isImagePreviewModalOpen = false;
+                    // this.isDeleteConfirmModalOpen = false;
+                    // this.isAboutModalOpen = false;
+                    // this.isErrorModalOpen = false;
+                    this.contextMenu.visible = false; // Keep for context menus as their setup might differ
+                    this.fileMenu.visible = false;    // Keep for file menu
                 });
 
                 const canvas = this.$refs.mindMapCanvas;
