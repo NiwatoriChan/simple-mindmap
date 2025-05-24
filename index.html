@@ -7,11 +7,1448 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        :root { font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif; }
+
+        #mindMapCanvas { display: block; border-radius: 0.5rem; cursor: grab; }
+        #mindMapCanvas:active { cursor: grabbing; }
+
+        #toolbar { border-radius: 0.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .tool-button, .toolbar-select {
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease, color 0.2s ease-in-out;
+            display: inline-flex; align-items: center; justify-content: center;
+            height: 2.5rem; padding-left: 0.75rem; padding-right: 0.75rem;
+        }
+        .tool-button { width: 2.5rem; }
+        .tool-button:active, .toolbar-select:active { transform: scale(0.95); }
+
+        .toolbar-select {
+            background-color: #37474f;
+            border-color: #546e7a;
+            color: #eceff1;
+            min-width: 80px;
+        }
+        .color-picker-label {
+            display: inline-flex; align-items: center; margin-right: 0.5rem;
+            padding: 0.25rem 0.5rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.875rem;
+            background-color: #37474f;
+            color: #cbd5e1;
+        }
+        .color-picker-input {
+            width: 2.5rem; height: 1.5rem; padding: 0.1rem;
+            border: 1px solid #4a5568;
+            border-radius: 0.25rem; cursor: pointer; vertical-align: middle; margin-left: 0.25rem;
+            background-color: #2d3748;
+        }
+
+        .modal-backdrop { background-color: rgba(0, 0, 0, 0.6); }
+        .modal-content { transform: scale(0.95); opacity: 0; animation: modal-appear 0.3s forwards; }
+        @keyframes modal-appear { to { opacity: 1; transform: scale(1); } }
+
+        #contextMenu, #fileContextMenu {
+            position: absolute; z-index: 1000;
+            border: 1px solid #4a5568;
+            border-radius: 0.375rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            min-width: 220px; padding-top: 0.25rem; padding-bottom: 0.25rem;
+            background-color: #1e293b;
+        }
+        .context-menu-item {
+            display: block; padding: 0.5rem 1rem; font-size: 0.875rem; cursor: pointer;
+            white-space: nowrap; line-height: 1.5;
+            color: #e2e8f0;
+            transition: background-color 0.1s ease;
+        }
+        .context-menu-item:hover {
+            background-color: #334155;
+        }
+        .context-menu-item > i:first-child:not(.fa-caret-right):not(.fa-caret-left) { margin-right: 0.6em; width: 1.25em; text-align: center; display: inline-block; vertical-align: middle; }
+
+        .context-menu-separator {
+            height: 1px; margin-top: 0.25rem; margin-bottom: 0.25rem;
+            background-color: #4a5568;
+        }
+        .context-submenu { position: relative; }
+        .submenu-content {
+            display: none; position: absolute; left: 100%; top: -5px;
+            border: 1px solid #4a5568;
+            border-radius: 0.375rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            min-width: 180px; padding-top: 0.25rem; padding-bottom: 0.25rem; z-index: 1001;
+            background-color: #1e293b;
+        }
+        .submenu-content.submenu-left { left: auto; right: 100%; }
+        .context-submenu:hover > .submenu-content { display: block; }
+        .submenu-item {
+            display: block; padding: 0.5rem 1rem; font-size: 0.875rem; cursor: pointer;
+            white-space: nowrap; line-height: 1.5;
+            color: #e2e8f0;
+            transition: background-color 0.1s ease;
+        }
+        .submenu-item:hover {
+            background-color: #334155;
+        }
+        .submenu-item > i { margin-right: 0.6em; width: 1.25em; text-align: center; display: inline-block; vertical-align: middle; }
+        .submenu-item .link-indicator { display: inline-block; width: 20px; margin-right: 0.5rem; font-family: monospace; text-align: center; vertical-align: middle; }
+        .linking-cursor { cursor: crosshair !important; }
+        .drag-linking-cursor { cursor: alias !important; }
+        [v-cloak] { display: none; }
+    </style>
 </head>
-<body class="dark bg-slate-900 text-gray-200 flex flex-col h-screen overflow-hidden">
+<body class="dark bg-slate-900 text-gray-200 flex flex-col h-screen overflow-hidden" v-cloak>
     <div id="app" class="flex flex-col h-full">
-        <!-- Vue app will be mounted here -->
+        <div id="toolbar" class="p-2 m-2 flex items-center space-x-1 sm:space-x-2 flex-wrap bg-slate-800 border border-slate-700 rounded-lg shadow">
+            <button @click="toggleFileMenu" ref="fileMenuButton" title="Fichier" class="tool-button bg-sky-600 text-white hover:bg-sky-700 rounded mr-1">
+                <i class="fas fa-bars"></i>
+            </button>
+            <span class="border-r h-6 border-slate-600"></span>
+
+            <button @click="undo" title="Annuler (Ctrl+Z)" :disabled="!canUndo" class="tool-button bg-slate-600 text-gray-200 hover:bg-slate-500 rounded disabled:opacity-50 disabled:cursor-not-allowed"><i class="fas fa-undo"></i></button>
+            <button @click="redo" title="Rétablir (Ctrl+Y)" :disabled="!canRedo" class="tool-button bg-slate-600 text-gray-200 hover:bg-slate-500 rounded disabled:opacity-50 disabled:cursor-not-allowed"><i class="fas fa-redo"></i></button>
+            <span class="border-r h-6 mx-1 border-slate-600"></span>
+
+            <span class="text-xs text-gray-400 ml-2 mr-1 hidden sm:inline">Alt+Glisser pour lier/créer</span>
+            <div class="flex-grow"></div>
+
+            <button @click="exportToPng" title="Exporter en PNG" class="tool-button bg-indigo-500 text-white rounded hover:bg-indigo-600"><i class="fas fa-file-export"></i></button>
+            <button @click="isAboutModalOpen = true" title="À propos" class="tool-button bg-slate-600 text-gray-200 hover:bg-slate-500 rounded"><i class="fas fa-question-circle"></i></button>
+
+            <input type="file" ref="imageInput" @change="handleImageSelected" accept="image/*" class="hidden">
+            <input type="file" ref="mapInput" @change="handleMapFileSelected" accept=".mapvue,application/json" class="hidden">
+        </div>
+
+        <div class="flex-grow m-2 relative overflow-hidden rounded-lg shadow-inner">
+            <canvas ref="mindMapCanvas"
+                id="mindMapCanvas"
+                class="w-full h-full"
+                :style="{ backgroundColor: canvasBgColor }"
+                :class="{'linking-cursor': isLinking, 'drag-linking-cursor': isDraggingLink}"
+                @mousedown="handleMouseDown"
+                @mousemove="handleMouseMove"
+                @mouseup="handleMouseUp"
+                @mouseout="handleMouseOut"
+                @dblclick="handleDoubleClick"
+                @wheel.prevent="handleWheel"
+                @contextmenu.prevent="handleContextMenu">
+            </canvas>
+        </div>
+
+        <modal :is-open="isTextEditModalOpen" @close="isTextEditModalOpen = false" title="Modifier le texte du nœud">
+            <textarea v-model="nodeTextInput" class="w-full p-2 border border-slate-600 rounded mb-4 bg-slate-700 text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" rows="3" ref="nodeTextInputArea"></textarea>
+            <div class="flex justify-end space-x-2">
+                <button @click="isTextEditModalOpen = false" class="px-4 py-2 bg-slate-600 text-gray-200 hover:bg-slate-500 rounded transition-colors">Annuler</button>
+                <button @click="saveNodeText" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">Sauvegarder</button>
+            </div>
+        </modal>
+        <modal :is-open="isHyperlinkModalOpen" @close="isHyperlinkModalOpen = false" title="Ajouter/Modifier un lien hypertexte">
+            <input type="url" v-model="hyperlinkInput" placeholder="https://example.com" class="w-full p-2 border border-slate-600 rounded mb-4 bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 outline-none">
+            <div class="flex justify-end space-x-2">
+                <button @click="isHyperlinkModalOpen = false" class="px-4 py-2 bg-slate-600 text-gray-200 hover:bg-slate-500 rounded transition-colors">Annuler</button>
+                <button @click="saveNodeHyperlink" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">Sauvegarder</button>
+            </div>
+        </modal>
+        <modal :is-open="isImagePreviewModalOpen" @close="isImagePreviewModalOpen = false" title="Aperçu de l'image" width-class="max-w-lg">
+            <img :src="previewImageUrl" alt="Aperçu" class="max-w-full max-h-[80vh] block rounded mx-auto">
+        </modal>
+        <modal :is-open="isDeleteConfirmModalOpen" @close="isDeleteConfirmModalOpen = false" title="Confirmer la suppression">
+            <p class="text-gray-300 mb-4">Voulez-vous vraiment supprimer ce nœud et tous ses enfants ? Cette action est irréversible.</p>
+            <div class="flex justify-end space-x-2">
+                <button @click="isDeleteConfirmModalOpen = false" class="px-4 py-2 bg-slate-600 text-gray-200 hover:bg-slate-500 rounded transition-colors">Annuler</button>
+                <button @click="confirmDeleteNode" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">Supprimer</button>
+            </div>
+        </modal>
+        <modal :is-open="isErrorModalOpen" @close="isErrorModalOpen = false" :title="errorModalTitle">
+            <p class="mb-4" :class="errorModalTypeClass">{{ errorModalMessage }}</p>
+            <div class="flex justify-end">
+                <button @click="isErrorModalOpen = false" class="px-4 py-2 bg-slate-600 text-gray-200 hover:bg-slate-500 rounded transition-colors">Fermer</button>
+            </div>
+        </modal>
+        <modal :is-open="isAboutModalOpen" @close="isAboutModalOpen = false" title="À propos de Carte Mentale Interactive" width-class="max-w-md">
+            <p class="text-gray-300 mb-2"><strong>Version :</strong> 1.1.0-alpha</p>
+            <p class="text-gray-300 mb-4"><strong>Auteur :</strong> Charles-Antoine Huberdeau</p>
+            <div class="border-t border-slate-700 pt-4 mt-4">
+                <h4 class="text-md font-semibold mb-2 text-gray-200">Technologies :</h4>
+                <ul class="list-disc list-inside text-sm text-gray-400">
+                    <li>Vue.js 3</li><li>Tailwind CSS</li><li>Font Awesome</li>
+                </ul>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button @click="isAboutModalOpen = false" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">Fermer</button>
+            </div>
+        </modal>
+
+        <div v-if="contextMenu.visible" id="contextMenu" ref="contextMenuElement"
+            :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+            <template v-if="contextMenu.nodeId && findNodeById(contextMenu.nodeId)">
+                <div @click="addNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-plus"></i> Ajouter enfant</div>
+                <div @click="openTextEditModal(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-pencil-alt"></i> Modifier texte</div>
+                <div @click="triggerImageUpload(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-image"></i> {{ findNodeById(contextMenu.nodeId).imageUrl ? 'Modifier' : 'Ajouter' }} image</div>
+                <div @click="openHyperlinkModal(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-link"></i> {{ findNodeById(contextMenu.nodeId).hyperlink ? 'Modifier' : 'Ajouter' }} lien</div>
+                <div class="context-menu-separator"></div>
+                 <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                    <i class="fas fa-icons"></i> Icône ({{ getNodeIconPreview(findNodeById(contextMenu.nodeId).icon) }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                        <div @click="setNodeProperty(contextMenu.nodeId, 'icon', null)"
+                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', null)"
+                             class="submenu-item"><i class="fas fa-ban"></i> Aucune <i v-if="!findNodeById(contextMenu.nodeId).icon" class="fas fa-check ml-2 text-blue-500"></i></div>
+                        <div v-for="icon in availableIcons" :key="icon.name"
+                             @click="setNodeProperty(contextMenu.nodeId, 'icon', icon.class)"
+                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'icon', icon.class)"
+                             class="submenu-item">
+                            <i :class="icon.class"></i> {{ icon.name }} <i v-if="findNodeById(contextMenu.nodeId).icon === icon.class" class="fas fa-check ml-2 text-blue-500"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="context-menu-separator"></div>
+                <template v-if="findNodeById(contextMenu.nodeId).parentId !== null">
+                    <div @click="detachNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-unlink"></i> Détacher du parent</div>
+                    <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                        <i class="fas fa-sign-in-alt"></i> Connecter à ({{ findNodeById(contextMenu.nodeId).entryPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                        <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                            <div v-for="point in CONNECTION_POINTS" :key="point"
+                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'entryPoint', point)"
+                                 @click="setNodeProperty(contextMenu.nodeId, 'entryPoint', point)"
+                                 class="submenu-item">
+                                {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).entryPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                            </div>
+                        </div>
+                    </div>
+                     <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                        <i class="fas fa-sign-out-alt"></i> Sortie parent ({{ findNodeById(contextMenu.nodeId).parentExitPoint || 'auto' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                        <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                            <div v-for="point in CONNECTION_POINTS" :key="point"
+                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'parentExitPoint', point)"
+                                 @click="setNodeProperty(contextMenu.nodeId, 'parentExitPoint', point)"
+                                 class="submenu-item">
+                                {{ point.charAt(0).toUpperCase() + point.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).parentExitPoint === point" class="fas fa-check ml-2 text-blue-500"></i>
+                            </div>
+                        </div>
+                    </div>
+                     <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                        <i class="fas fa-link"></i> Type de lien ({{ findNodeById(contextMenu.nodeId).connectionType || 'solid' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                        <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                            <div v-for="type in CONNECTION_TYPES" :key="type"
+                                 @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'connectionType', type)"
+                                 @click="setNodeProperty(contextMenu.nodeId, 'connectionType', type)"
+                                 class="submenu-item">
+                                <span class="link-indicator">{{ getConnectionTypeIndicator(type) }}</span> {{ type.charAt(0).toUpperCase() + type.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).connectionType === type" class="fas fa-check ml-2 text-blue-500"></i>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                 <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                    <i class="fas fa-shapes"></i> Forme ({{ findNodeById(contextMenu.nodeId).shape || 'rectangle' }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                        <div v-for="shape in NODE_SHAPES" :key="shape"
+                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'shape', shape)"
+                             @click="setNodeProperty(contextMenu.nodeId, 'shape', shape)"
+                             class="submenu-item">
+                            <i :class="getNodeShapeIcon(shape)"></i> {{ shape.charAt(0).toUpperCase() + shape.slice(1) }} <i v-if="findNodeById(contextMenu.nodeId).shape === shape" class="fas fa-check ml-2 text-blue-500"></i>
+                        </div>
+                    </div>
+                </div>
+                <div @click="startLinking(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-people-arrows"></i> Connecter à un autre...</div>
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                    <i class="fas fa-border-style"></i> Style bordure ({{ $filters.capitalize(findNodeById(contextMenu.nodeId).borderStyle || 'solid') }}) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                        <div v-for="style in availableBorderStyles" :key="style.value"
+                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderStyle', style.value)"
+                             @click="setNodeProperty(contextMenu.nodeId, 'borderStyle', style.value)"
+                             class="submenu-item">
+                            {{ style.name }} <i v-if="(findNodeById(contextMenu.nodeId).borderStyle || 'solid') === style.value" class="fas fa-check ml-2 text-blue-500"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="context-menu-item context-submenu" @mouseleave="clearPreviewConnectionSide()">
+                    <i class="fas fa-ruler-horizontal"></i> Épaisseur bordure ({{ findNodeById(contextMenu.nodeId).borderWidth || 1 }}px) <i :class="contextSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                    <div class="submenu-content" :class="{'submenu-left': contextSubmenuOpenLeft}">
+                        <div v-for="width in [1, 2, 3, 4, 5]" :key="width"
+                             @mouseenter="setPreviewConnectionSide(contextMenu.nodeId, 'borderWidth', width)"
+                             @click="setNodeProperty(contextMenu.nodeId, 'borderWidth', width)"
+                             class="submenu-item">
+                            {{ width }}px <i v-if="(findNodeById(contextMenu.nodeId).borderWidth || 1) === width" class="fas fa-check ml-2 text-blue-500"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="context-menu-separator"></div>
+                <div @click="requestDeleteNode(contextMenu.nodeId)" class="context-menu-item"><i class="fas fa-trash-alt"></i> Supprimer nœud</div>
+                <div class="context-menu-separator"></div>
+                <div @click="() => { $refs.nodeBgColorPickerFromContext.click(); hideContextMenu(); }" class="context-menu-item">
+                    <i class="fas fa-palette"></i> Changer fond
+                    <input type="color" ref="nodeBgColorPickerFromContext" v-model="selectedNodeBgColor" @input="handleNodeBgColorChange" class="hidden" :disabled="!selectedNodeId">
+                </div>
+                <div @click="() => { $refs.nodeTextColorPickerFromContext.click(); hideContextMenu(); }" class="context-menu-item">
+                    <i class="fas fa-font"></i> Changer texte
+                     <input type="color" ref="nodeTextColorPickerFromContext" v-model="selectedNodeTextColor" @input="handleNodeTextColorChange" class="hidden" :disabled="!selectedNodeId">
+                </div>
+            </template>
+            <template v-else>
+                 <div v-if="!hasRootNode" @click="addRootNode(); hideContextMenu();" class="context-menu-item"><i class="fas fa-circle-notch"></i> Créer concept central</div>
+                <div @click="addNodeAtPosition(contextMenu.rawX, contextMenu.rawY)" class="context-menu-item"><i class="fas fa-plus-circle"></i> Ajouter nœud ici</div>
+                <div class="context-menu-separator"></div>
+                <div @click="resetView(); hideContextMenu();" class="context-menu-item"><i class="fas fa-crosshairs"></i> Centrer vue</div>
+                <div @click="zoom(1.2); hideContextMenu();" class="context-menu-item"><i class="fas fa-search-plus"></i> Zoom avant</div>
+                <div @click="zoom(0.8); hideContextMenu();" class="context-menu-item"><i class="fas fa-search-minus"></i> Zoom arrière</div>
+            </template>
+        </div>
+
+        <div v-if="fileMenu.visible" id="fileContextMenu" ref="fileMenuElement"
+            :style="{ position: 'absolute', top: fileMenu.top, left: fileMenu.left, zIndex: 1000 }">
+            <div @click="resetApplication" class="context-menu-item">
+                <i class="fas fa-file"></i> Nouveau
+            </div>
+            <div class="context-menu-separator"></div>
+            <div @click="() => { $refs.mapInput.click(); fileMenu.visible = false; }" class="context-menu-item">
+                <i class="fas fa-folder-open"></i> Ouvrir un .mapvue
+            </div>
+            <div @click="() => { saveMapToFile(); fileMenu.visible = false; }" class="context-menu-item">
+                <i class="fas fa-file-download"></i> Télécharger (.mapvue)
+            </div>
+            <div class="context-menu-separator"></div>
+            <div class="context-menu-item context-submenu">
+                <i class="fas fa-cog"></i> Propriétés <i :class="fileMenuSubmenuOpenLeft ? 'fas fa-caret-left float-right' : 'fas fa-caret-right float-right'"></i>
+                <div class="submenu-content" :class="{'submenu-left': fileMenuSubmenuOpenLeft}">
+                    <div class="submenu-item flex items-center justify-between px-3 py-2 hover:bg-slate-700" @click.stop>
+                        <label for="canvasBgColorPickerMenuFile" class="text-sm text-gray-300 mr-3 whitespace-nowrap cursor-pointer">Fond Canevas:</label>
+                        <input type="color" id="canvasBgColorPickerMenuFile"
+                               class="color-picker-input h-6 w-10 p-0.5 rounded border-slate-600 bg-slate-700"
+                               style="margin-left: 0;"
+                               v-model="canvasBgColor">
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <script type="module" src="/src/main.js"></script>
+
+    <script>
+        const NODE_DEFAULT_WIDTH = 120; const NODE_DEFAULT_HEIGHT = 40;
+        const NODE_DEFAULT_BG_COLOR = '#ffffff'; const NODE_DEFAULT_TEXT_COLOR = '#1f2937';
+        const NODE_SELECTED_BORDER_COLOR = '#3b82f6'; const NODE_DROP_TARGET_BORDER_COLOR = '#10b981';
+        const NODE_LINK_TARGET_BORDER_COLOR = '#f59e0b'; const CONNECTION_HOVER_COLOR = '#3b82f6';
+        const CONNECTION_PREVIEW_COLOR = '#facc15';
+        const IMAGE_INDICATOR_SIZE = 15; const IMAGE_INDICATOR_COLOR = '#10b981';
+        const CONNECTION_TYPES = ['solid', 'dashed', 'arrow']; const CONNECTION_POINTS = ['top', 'bottom', 'left', 'right'];
+        const REPARENT_PROXIMITY_THRESHOLD = 60; const CONNECTION_END_HOVER_RADIUS = 8;
+        const NODE_SHAPES = ['rectangle', 'ellipse', 'diamond', 'triangle']; const NODE_DEFAULT_SHAPE = 'rectangle';
+        const NODE_APPEAR_SPEED = 0.07; const NODE_HOVER_SCALE = 1.05;
+        const MAX_HISTORY_STATES = 50;
+        const LINK_ANIMATION_DURATION = 200;
+        const TEMP_LINK_COLOR = '#818cf8';
+        const AUTOSAVE_INTERVAL = 50000;
+        const DEFAULT_CANVAS_BG_COLOR = '#2d3748';
+        const CHILD_NODE_SPACING = 40; // Increased spacing
+
+
+        const AVAILABLE_ICONS = [
+            { name: 'Ampoule', class: 'fas fa-lightbulb', unicode: '\uf0eb' }, { name: 'Étoile', class: 'fas fa-star', unicode: '\uf005' },
+            { name: 'Coche', class: 'fas fa-check', unicode: '\uf00c' }, { name: 'Question', class: 'fas fa-question-circle', unicode: '\uf059' },
+            { name: 'Attention', class: 'fas fa-exclamation-triangle', unicode: '\uf071' }, { name: 'Info', class: 'fas fa-info-circle', unicode: '\uf05a' },
+            { name: 'Lien', class: 'fas fa-link', unicode: '\uf0c1' }, { name: 'Dossier', class: 'fas fa-folder', unicode: '\uf07b' },
+            { name: 'Personne', class: 'fas fa-user', unicode: '\uf007' },
+        ];
+        const HYPERLINK_INDICATOR_UNICODE = '\uf0c1';
+        const ICON_SIZE = 16;
+
+        const AVAILABLE_BORDER_STYLES = [
+            { name: 'Solide', value: 'solid', dash: [] }, { name: 'Tiretée', value: 'dashed', dash: [7, 4] },
+            { name: 'Pointillée', value: 'dotted', dash: [2, 3] },
+        ];
+
+        const generateUUID = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).substring(2));
+        const getDynamicDrawingStyles = () => ({
+            connectionColor: '#718096',
+            nodeDefaultBorderColor: '#A0AEC0',
+            shadowColor: 'rgba(0,0,0,0.4)',
+            contextMenuBg: 'bg-slate-800',
+            contextMenuItemText: 'text-gray-200',
+            contextMenuItemHoverBg: 'hover:bg-slate-700',
+            contextMenuBorder: 'border-slate-700',
+        });
+
+        const fillRoundRect = (ctx, x, y, w, h, r) => { if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2; ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill(); };
+        const strokeRoundRect = (ctx, x, y, w, h, r) => { if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2; ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.stroke(); };
+        const wrapText = (context, text, x, y, maxWidth, lineHeight, hasIcon, hasLink) => {
+            let iconOffsetLeft = 0; let textDrawX = x; const iconPadding = 5; let leftPadding = 10;
+            if (hasIcon) iconOffsetLeft += ICON_SIZE + iconPadding; if (hasLink) iconOffsetLeft += ICON_SIZE + iconPadding;
+            const availableTextWidth = maxWidth - iconOffsetLeft - 10;
+            textDrawX = x - maxWidth/2 + leftPadding + iconOffsetLeft + availableTextWidth / 2;
+            const lines = String(text).split('\n'); let totalLineCount = 0; const processedLines = [];
+            lines.forEach(lineText => { const words = lineText.split(' '); let currentLine = ''; for (let n = 0; n < words.length; n++) { let testLine = currentLine + words[n] + ' '; let metrics = context.measureText(testLine); let testWidth = metrics.width; if (testWidth > availableTextWidth && n > 0) { processedLines.push(currentLine.trim()); currentLine = words[n] + ' '; } else { currentLine = testLine; } } processedLines.push(currentLine.trim()); });
+            totalLineCount = processedLines.length; let startY = y - (totalLineCount - 1) * lineHeight / 2;
+            processedLines.forEach((line, index) => { context.fillText(line, textDrawX, startY + index * lineHeight); });
+        };
+        const drawArrowhead = (context, fromX, fromY, toX, toY, headLength) => { const dx = toX - fromX; const dy = toY - fromY; const angle = Math.atan2(dy, dx); context.beginPath(); context.moveTo(toX, toY); context.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6)); context.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6)); context.closePath(); context.fill(); };
+        const drawRectangleNode = (ctx, node) => { fillRoundRect(ctx, node.x, node.y, node.width, node.height, 10); strokeRoundRect(ctx, node.x, node.y, node.width, node.height, 10); };
+        const drawEllipseNode = (ctx, node) => { const cx = node.x + node.width / 2; const cy = node.y + node.height / 2; const rx = node.width / 2; const ry = node.height / 2; if (rx <= 0 || ry <= 0) return; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); };
+        const drawDiamondNode = (ctx, node) => { const { x, y, width: w, height: h } = node; const p1x = x + w / 2, p1y = y; const p2x = x + w, p2y = y + h / 2; const p3x = x + w / 2, p3y = y + h; const p4x = x, p4y = y + h / 2; ctx.beginPath(); ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y); ctx.lineTo(p3x, p3y); ctx.lineTo(p4x, p4y); ctx.closePath(); ctx.fill(); ctx.stroke(); };
+        const drawTriangleNode = (ctx, node) => { const { x, y, width: w, height: h } = node; const p1x = x + w / 2, p1y = y; const p2x = x + w, p2y = y + h; const p3x = x, p3y = y + h; ctx.beginPath(); ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y); ctx.lineTo(p3x, p3y); ctx.closePath(); ctx.fill(); ctx.stroke(); };
+        const drawNodeImageIndicator = (ctx, node, currentScale) => { const r = IMAGE_INDICATOR_SIZE / 2; const x = node.x + node.width - r; const y = node.y + r; ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = IMAGE_INDICATOR_COLOR; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 1 / currentScale; ctx.stroke(); ctx.restore(); };
+        const drawConnectionEndpointCircle = (ctx, x, y, currentScale) => { ctx.save(); ctx.beginPath(); ctx.arc(x, y, CONNECTION_END_HOVER_RADIUS / currentScale, 0, Math.PI * 2); ctx.fillStyle = 'rgba(59, 130, 246, 0.5)'; ctx.fill(); ctx.restore(); };
+
+        const ModalComponent = {
+            props: { isOpen: Boolean, title: String, widthClass: { type: String, default: 'max-w-sm' } },
+            emits: ['close'],
+            template: `
+                <div v-if="isOpen" class="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4" @click="$emit('close')">
+                    <div class="modal-content bg-slate-800 p-5 sm:p-6 rounded-lg shadow-xl w-full" :class="widthClass" @click.stop>
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-white">{{ title }}</h3>
+                            <button @click="$emit('close')" class="text-gray-500 hover:text-gray-300 transition-colors">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <slot></slot>
+                    </div>
+                </div>`
+        };
+
+        const app = Vue.createApp({
+            components: { 'modal': ModalComponent },
+            data() {
+                return {
+                    nodes: [], selectedNodeId: null, offsetX: 0, offsetY: 0, scale: 1,
+                    isTextEditModalOpen: false, 
+                    nodeToEditTextId: null, 
+                    nodeTextInput: '',
+                    isImagePreviewModalOpen: false, 
+                    previewImageUrl: '',
+                    isDeleteConfirmModalOpen: false, 
+                    nodeToDeleteId: null,
+                    isErrorModalOpen: false, 
+                    errorModalTitle: 'Erreur', 
+                    errorModalMessage: '', 
+                    errorModalType: 'error', // 'error', 'success', 'info'
+                    isAboutModalOpen: false,
+                    isHyperlinkModalOpen: false, 
+                    hyperlinkInput: '', 
+                    nodeToEditHyperlinkId: null,
+                    contextMenu: { visible: false, x: 0, y: 0, nodeId: null, rawX: 0, rawY: 0 },
+                    fileMenu: { visible: false, top: '0px', left: '0px' },
+                    draggedNodeId: null, isDragging: false, isPanning: false, panStart: { x: 0, y: 0 }, dragStart: { x: 0, y: 0 },
+                    isLinking: false, // For context menu "Connect to another..."
+                    linkStartNodeId: null, // For context menu "Connect to another..."
+                    isDraggingLink: false, // For Alt+Drag to create/link node
+                    linkDragStartNodeId: null, // For Alt+Drag
+                    linkDragEndPos: null, // For Alt+Drag
+                    potentialLinkTargetId: null, // For Alt+Drag, highlights node under cursor
+                    potentialDropTargetId: null, // For node drag reparenting, highlights node under cursor
+                    hoveredNodeId: null, isAnimating: false, lastMousePos: { clientX: 0, clientY: 0 }, hoveredConnectionId: null, draggingConnectionEnd: null, potentialEndPoint: null,
+                    canvasBgColor: DEFAULT_CANVAS_BG_COLOR,
+                    history: [], currentHistoryIndex: -1,
+                    availableIcons: AVAILABLE_ICONS, availableBorderStyles: AVAILABLE_BORDER_STYLES,
+                    CONNECTION_POINTS: CONNECTION_POINTS, CONNECTION_TYPES: CONNECTION_TYPES, NODE_SHAPES: NODE_SHAPES,
+                    previewConnectionSide: null,
+                    autosaveIntervalId: null,
+                }
+            },
+            computed: {
+                dynamicStyles() { return getDynamicDrawingStyles(); },
+                selectedNode() { return this.findNodeById(this.selectedNodeId); },
+                selectedNodeBgColor: { get() { return this.selectedNode ? this.selectedNode.color : NODE_DEFAULT_BG_COLOR; }, set(value) {} },
+                selectedNodeTextColor: { get() { return this.selectedNode ? this.selectedNode.textColor : NODE_DEFAULT_TEXT_COLOR; }, set(value) {} },
+                errorModalTypeClass() { if (this.errorModalType === 'success') return 'text-green-400'; if (this.errorModalType === 'info') return 'text-blue-400'; return 'text-red-400'; },
+                contextSubmenuOpenLeft() { if (this.$refs.contextMenuElement) { const menuWidth = this.$refs.contextMenuElement.offsetWidth || 200; const submenuWidthEstimate = 180; return this.contextMenu.x + menuWidth + submenuWidthEstimate > window.innerWidth; } return false; },
+                fileMenuSubmenuOpenLeft() {
+                    if (this.$refs.fileMenuElement) {
+                        const menuRect = this.$refs.fileMenuElement.getBoundingClientRect();
+                        const submenuWidthEstimate = 200;
+                        return menuRect.left + menuRect.width + submenuWidthEstimate > window.innerWidth;
+                    }
+                    return false;
+                },
+                canUndo() { return this.currentHistoryIndex > 0; },
+                canRedo() { return this.currentHistoryIndex < this.history.length - 1; },
+                hasRootNode() { return this.nodes.some(n => n.parentId === null || n.parentId === undefined); },
+            },
+            watch: {
+                canvasBgColor(newValue, oldValue) {
+                    if(newValue !== oldValue) {
+                        this.recordHistory("Change Canvas Bg");
+                        this.redrawCanvas();
+                    }
+                },
+                nodes: { handler() { this.redrawCanvas(); }, deep: true },
+                offsetX() { this.redrawCanvas(); }, offsetY() { this.redrawCanvas(); }, scale() { this.redrawCanvas(); },
+                selectedNodeId() { this.redrawCanvas(); },
+                potentialDropTargetId() { this.redrawCanvas(); }, potentialLinkTargetId() { this.redrawCanvas(); }, // Covers both node-drag and alt-drag linking highlights
+                hoveredNodeId() { this.redrawCanvas(); }, hoveredConnectionId() { this.redrawCanvas(); },
+                draggingConnectionEnd() { this.redrawCanvas(); },
+                isDraggingLink() { this.redrawCanvas(); },
+                isLinking() { this.redrawCanvas(); },
+                previewConnectionSide() { this.redrawCanvas(); }
+            },
+            async mounted() {
+                this.resizeCanvas();
+                window.addEventListener('resize', this.resizeCanvas);
+                let didLoad = await this.loadMapFromLocalStorage();
+
+                if (!didLoad && !this.hasRootNode) {
+                    this.$nextTick(() => {
+                         this.addInitialNode();
+                    });
+                } else if (this.nodes.length > 0 && this.history.length === 0) {
+                     this.recordHistory("Load Initial Map");
+                } else if (this.history.length > 0 && this.currentHistoryIndex === -1 && this.nodes.length > 0){
+                     this.currentHistoryIndex = this.history.length - 1;
+                }
+
+                document.addEventListener('click', this.handleGlobalClick);
+                document.addEventListener('keydown', this.handleGlobalKeyDown);
+
+                this.autosaveIntervalId = setInterval(() => {
+                    this.saveMapToLocalStorage(true);
+                }, AUTOSAVE_INTERVAL);
+
+                this.$nextTick(() => {
+                    this.isTextEditModalOpen = false;
+                    this.isHyperlinkModalOpen = false;
+                    this.isImagePreviewModalOpen = false;
+                    this.isDeleteConfirmModalOpen = false;
+                    this.isAboutModalOpen = false;
+                    this.isErrorModalOpen = false;
+                    this.contextMenu.visible = false;
+                    this.fileMenu.visible = false;
+                });
+            },
+            beforeUnmount() {
+                window.removeEventListener('resize', this.resizeCanvas);
+                document.removeEventListener('click', this.handleGlobalClick);
+                document.removeEventListener('keydown', this.handleGlobalKeyDown);
+                if (this.autosaveIntervalId) {
+                    clearInterval(this.autosaveIntervalId);
+                }
+            },
+            methods: {
+                toggleFileMenu(event) {
+                    if (this.fileMenu.visible) {
+                        this.fileMenu.visible = false;
+                    } else {
+                        const buttonRect = event.currentTarget.getBoundingClientRect();
+                        this.fileMenu.top = `${buttonRect.bottom + window.scrollY}px`;
+                        this.fileMenu.left = `${buttonRect.left + window.scrollX}px`;
+                        this.fileMenu.visible = true;
+                        this.hideContextMenu();
+                    }
+                },
+                setPreviewConnectionSide(nodeId, property, value) {
+                    this.previewConnectionSide = { nodeId, property, value };
+                },
+                clearPreviewConnectionSide() {
+                    this.previewConnectionSide = null;
+                },
+                recordHistory(actionName = "Unknown Action") {
+                    const serializedNodes = JSON.parse(JSON.stringify(this.nodes.map(n => { const { imageObj, ...rest } = n; return rest; })));
+                    const state = {
+                        nodes: serializedNodes,
+                        viewState: { offsetX: this.offsetX, offsetY: this.offsetY, scale: this.scale },
+                        selectedNodeId: this.selectedNodeId,
+                        canvasBgColor: this.canvasBgColor,
+                    };
+                    if (this.currentHistoryIndex < this.history.length - 1) {
+                        this.history = this.history.slice(0, this.currentHistoryIndex + 1);
+                    }
+                    this.history.push(state);
+                    if (this.history.length > MAX_HISTORY_STATES) { this.history.shift(); }
+                    this.currentHistoryIndex = this.history.length - 1;
+                },
+                loadStateFromHistory(state) {
+                    this.nodes = JSON.parse(JSON.stringify(state.nodes)).map(nodeData => {
+                        const node = { ...nodeData, imageObj: null };
+                        if (node.imageUrl) {
+                            const img = new Image();
+                            img.onload = () => { node.imageObj = img; this.redrawCanvas(); };
+                            img.onerror = () => { node.imageUrl = null; };
+                            img.src = node.imageUrl;
+                        }
+                        return node;
+                    });
+                    this.offsetX = state.viewState.offsetX; this.offsetY = state.viewState.offsetY;
+                    this.scale = state.viewState.scale; this.selectedNodeId = state.selectedNodeId;
+                    this.canvasBgColor = state.canvasBgColor;
+                    this.redrawCanvas();
+                },
+                undo() { if (this.canUndo) { this.currentHistoryIndex--; this.loadStateFromHistory(this.history[this.currentHistoryIndex]); } },
+                redo() { if (this.canRedo) { this.currentHistoryIndex++; this.loadStateFromHistory(this.history[this.currentHistoryIndex]); } },
+
+                redrawCanvas() {
+                    const canvas = this.$refs.mindMapCanvas;
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx || canvas.width <= 0 || canvas.height <= 0) return;
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.save();
+                    ctx.translate(this.offsetX, this.offsetY);
+                    ctx.scale(this.scale, this.scale);
+
+                    const ds = getDynamicDrawingStyles();
+                    ctx.lineWidth = 2;
+
+                    this.nodes.forEach(child => {
+                        if (!child || child.parentId === null || child.parentId === undefined) return;
+                        const parent = this.findNodeById(child.parentId);
+                        if (parent) {
+                            let tempParentExitPoint = child.parentExitPoint || 'bottom';
+                            let tempChildEntryPoint = child.entryPoint || 'top';
+                            let tempConnectionType = child.connectionType || 'solid';
+                            let isPreviewingConnection = false;
+                            let isBeingDraggedEndpoint = this.draggingConnectionEnd && this.draggingConnectionEnd.childId === child.id;
+
+                            let currentParentNode = parent;
+                            let currentChildNode = child;
+                            let currentParentExitPoint = tempParentExitPoint;
+                            let currentChildEntryPoint = tempChildEntryPoint;
+
+                            if (this.previewConnectionSide && this.previewConnectionSide.nodeId === child.id) {
+                                if (this.previewConnectionSide.property === 'parentExitPoint') { tempParentExitPoint = this.previewConnectionSide.value; isPreviewingConnection = true; }
+                                else if (this.previewConnectionSide.property === 'entryPoint') { tempChildEntryPoint = this.previewConnectionSide.value; isPreviewingConnection = true; }
+                                else if (this.previewConnectionSide.property === 'connectionType') { tempConnectionType = this.previewConnectionSide.value; isPreviewingConnection = true; }
+                                // Update current points if previewing
+                                currentParentExitPoint = tempParentExitPoint;
+                                currentChildEntryPoint = tempChildEntryPoint;
+                            }
+
+                            let finalP0, finalP3;
+
+                            if (isBeingDraggedEndpoint && this.potentialEndPoint) {
+                                if (this.draggingConnectionEnd.endType === 'parentExit') {
+                                    finalP0 = this.potentialEndPoint.coords; // From potential new parent/side
+                                    finalP3 = this.getConnectionPointCoords(child, currentChildEntryPoint); // To original child's entry
+                                } else { // 'childEntry'
+                                    finalP0 = this.getConnectionPointCoords(parent, currentParentExitPoint); // From original parent's exit
+                                    finalP3 = this.potentialEndPoint.coords; // To potential new child/side
+                                }
+                            } else {
+                                finalP0 = this.getConnectionPointCoords(currentParentNode, currentParentExitPoint);
+                                finalP3 = this.getConnectionPointCoords(currentChildNode, currentChildEntryPoint);
+                            }
+                            
+                            if (!finalP0 || !finalP3 || typeof finalP0.x !== 'number' || typeof finalP3.x !== 'number') return;
+
+                            let P0 = { ...finalP0 };
+                            let P3 = { ...finalP3 };
+
+                            if (child.isLinkAnimating && child.linkPrevP0 && child.linkPrevP3) {
+                                const elapsed = Date.now() - child.linkAnimationStartTime;
+                                let progress = Math.min(1, elapsed / LINK_ANIMATION_DURATION);
+                                progress = 1 - Math.pow(1 - progress, 3);
+                                
+                                P0.x = child.linkPrevP0.x + (finalP0.x - child.linkPrevP0.x) * progress;
+                                P0.y = child.linkPrevP0.y + (finalP0.y - child.linkPrevP0.y) * progress;
+                                P3.x = child.linkPrevP3.x + (finalP3.x - child.linkPrevP3.x) * progress;
+                                P3.y = child.linkPrevP3.y + (finalP3.y - child.linkPrevP3.y) * progress;
+
+                                if (progress >= 1) {
+                                    child.isLinkAnimating = false;
+                                    delete child.linkPrevP0;
+                                    delete child.linkPrevP3;
+                                    delete child.linkAnimationStartTime;
+                                }
+                            }
+
+                            if (isPreviewingConnection) {
+                                ctx.strokeStyle = CONNECTION_PREVIEW_COLOR;
+                            } else if (child.id === this.hoveredConnectionId || isBeingDraggedEndpoint) {
+                                ctx.strokeStyle = CONNECTION_HOVER_COLOR;
+                            } else {
+                                ctx.strokeStyle = ds.connectionColor;
+                            }
+                            ctx.fillStyle = ctx.strokeStyle;
+
+                            let P1 = { x: P0.x, y: P0.y }, P2 = { x: P3.x, y: P3.y };
+                            const fixedOffset = 50; 
+                            
+                            let effectiveParentExitSide = currentParentExitPoint;
+                            let effectiveChildEntrySide = currentChildEntryPoint;
+
+                            if (isBeingDraggedEndpoint && this.potentialEndPoint) {
+                                if (this.draggingConnectionEnd.endType === 'parentExit') {
+                                    effectiveParentExitSide = this.potentialEndPoint.side;
+                                } else { // 'childEntry'
+                                    effectiveChildEntrySide = this.potentialEndPoint.side;
+                                }
+                            }
+
+                            switch (effectiveParentExitSide) { case 'top': P1.y -= fixedOffset; break; case 'bottom': P1.y += fixedOffset; break; case 'left': P1.x -= fixedOffset; break; case 'right': P1.x += fixedOffset; break; }
+                            switch (effectiveChildEntrySide) { case 'top': P2.y -= fixedOffset; break; case 'bottom': P2.y += fixedOffset; break; case 'left': P2.x -= fixedOffset; break; case 'right': P2.x += fixedOffset; break; }
+                            
+                            if (tempConnectionType === 'dashed') ctx.setLineDash([7,4]);
+                            else if (tempConnectionType === 'dotted') ctx.setLineDash([2,3]);
+                            else ctx.setLineDash([]);
+
+                            ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.bezierCurveTo(P1.x, P1.y, P2.x, P2.y, P3.x, P3.y); ctx.stroke();
+                            if (tempConnectionType === 'arrow') drawArrowhead(ctx, P2.x, P2.y, P3.x, P3.y, 10);
+                            ctx.setLineDash([]);
+
+                            if (child.id === this.hoveredConnectionId || isBeingDraggedEndpoint) {
+                                // Draw circles at the *actual* attachment points of the link being drawn
+                                drawConnectionEndpointCircle(ctx, finalP0.x, finalP0.y, this.scale); 
+                                drawConnectionEndpointCircle(ctx, finalP3.x, finalP3.y, this.scale); 
+                            }
+                        }
+                    });
+
+                    if (this.isDraggingLink && this.linkDragStartNodeId && this.linkDragEndPos) {
+                        const startNode = this.findNodeById(this.linkDragStartNodeId);
+                        if (startNode) {
+                            const calculatedPoints = this.calculateDefaultConnectionPoints(startNode, {x: this.linkDragEndPos.x - NODE_DEFAULT_WIDTH/2, y: this.linkDragEndPos.y - NODE_DEFAULT_HEIGHT/2, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT});
+                            const startCoords = this.getConnectionPointCoords(startNode, calculatedPoints.parentExitPoint);
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.moveTo(startCoords.x, startCoords.y);
+                            ctx.lineTo(this.linkDragEndPos.x, this.linkDragEndPos.y);
+                            ctx.strokeStyle = TEMP_LINK_COLOR;
+                            ctx.lineWidth = 2 / this.scale;
+                            ctx.setLineDash([3,3]);
+                            ctx.stroke();
+                            ctx.restore();
+
+                            if(this.potentialLinkTargetId){
+                                 const targetNode = this.findNodeById(this.potentialLinkTargetId);
+                                 if(targetNode){
+                                    ctx.save();
+                                    ctx.strokeStyle = NODE_LINK_TARGET_BORDER_COLOR;
+                                    ctx.lineWidth = 3 / this.scale;
+                                    const { x, y, width, height, shape } = targetNode;
+                                    if (shape === 'ellipse') drawEllipseNode(ctx, targetNode);
+                                    else if (shape === 'diamond') drawDiamondNode(ctx, targetNode);
+                                    else if (shape === 'triangle') drawTriangleNode(ctx, targetNode);
+                                    else strokeRoundRect(ctx, x, y, width, height, 10);
+                                    ctx.restore();
+                                 }
+                            }
+                        }
+                    }
+                    if (this.isLinking && this.linkStartNodeId && this.lastMousePos.clientX !== 0) {
+                         const startNode = this.findNodeById(this.linkStartNodeId);
+                         const mousePos = this.getMousePos(this.lastMousePos, canvas);
+                         if (startNode) {
+                            const tempTargetNode = { x: mousePos.x - NODE_DEFAULT_WIDTH/2, y: mousePos.y - NODE_DEFAULT_HEIGHT/2, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT};
+                            const { parentExitPoint } = this.calculateDefaultConnectionPoints(startNode, tempTargetNode);
+                            const startCoords = this.getConnectionPointCoords(startNode, parentExitPoint);
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.moveTo(startCoords.x, startCoords.y);
+                            ctx.lineTo(mousePos.x, mousePos.y);
+                            ctx.strokeStyle = TEMP_LINK_COLOR;
+                            ctx.lineWidth = 2 / this.scale;
+                            ctx.setLineDash([5,5]);
+                            ctx.stroke();
+                            ctx.restore();
+                         }
+                    }
+
+
+                    this.nodes.forEach(node => {
+                        if (!node || typeof node.x !== 'number') return;
+                        let tempShape = node.shape || NODE_DEFAULT_SHAPE;
+                        let tempBorderStyle = node.borderStyle || 'solid';
+                        let tempBorderWidth = node.borderWidth || 1;
+
+                        if (this.previewConnectionSide && this.previewConnectionSide.nodeId === node.id) {
+                            if (this.previewConnectionSide.property === 'shape') { tempShape = this.previewConnectionSide.value; }
+                            else if (this.previewConnectionSide.property === 'borderStyle') { tempBorderStyle = this.previewConnectionSide.value; }
+                            else if (this.previewConnectionSide.property === 'borderWidth') { tempBorderWidth = this.previewConnectionSide.value; }
+                        }
+
+                        const centerX = node.x + node.width / 2; const centerY = node.y + node.height / 2;
+                        ctx.save();
+                        let currentTransformScale = 1.0; let currentAlpha = 1.0;
+                        if (node.isAppearing) { node.animationProgress = Math.min(1, (node.animationProgress || 0) + NODE_APPEAR_SPEED); currentTransformScale = 0.5 + node.animationProgress * 0.5; currentAlpha = node.animationProgress; if (node.animationProgress >= 1) { delete node.isAppearing; delete node.animationProgress; } ctx.translate(centerX, centerY); ctx.scale(currentTransformScale, currentTransformScale); ctx.translate(-centerX, -centerY); ctx.globalAlpha = currentAlpha; }
+                        else if (node.id === this.hoveredNodeId && !this.isDragging && !this.isPanning && !this.isDraggingLink && !this.draggingConnectionEnd) { ctx.translate(centerX, centerY); ctx.scale(NODE_HOVER_SCALE, NODE_HOVER_SCALE); ctx.translate(-centerX, -centerY); }
+
+                        let borderColor = ds.nodeDefaultBorderColor;
+                        if (node.id === this.selectedNodeId) { borderColor = NODE_SELECTED_BORDER_COLOR; tempBorderWidth = Math.max(tempBorderWidth, 2); }
+                        else if (node.id === this.potentialDropTargetId) { borderColor = NODE_DROP_TARGET_BORDER_COLOR; tempBorderWidth = Math.max(tempBorderWidth, 2); } // Node drag reparent
+                        else if (node.id === this.potentialLinkTargetId) { borderColor = NODE_LINK_TARGET_BORDER_COLOR; tempBorderWidth = Math.max(tempBorderWidth, 2); } // Alt-drag linking
+                        else if (this.draggingConnectionEnd && this.potentialEndPoint && node.id === this.potentialEndPoint.node.id && 
+                                 (!this.draggingConnectionEnd.nodeToAttach || node.id !== this.draggingConnectionEnd.nodeToAttach.id)) {
+                            borderColor = NODE_LINK_TARGET_BORDER_COLOR; // Highlight for connection endpoint drag to new node
+                            tempBorderWidth = Math.max(tempBorderWidth, 2);
+                        }
+
+                        ctx.fillStyle = node.color || NODE_DEFAULT_BG_COLOR;
+                        ctx.strokeStyle = borderColor;
+                        ctx.lineWidth = tempBorderWidth / currentTransformScale;
+                        const borderStyleObj = AVAILABLE_BORDER_STYLES.find(bs => bs.value === tempBorderStyle);
+                        ctx.setLineDash(borderStyleObj ? borderStyleObj.dash.map(d => d * (ctx.lineWidth > 1 ? 1.5 : 1)) : []);
+                        ctx.shadowColor = ds.shadowColor; ctx.shadowBlur = 5 / currentTransformScale; ctx.shadowOffsetX = 2 / currentTransformScale; ctx.shadowOffsetY = 2 / currentTransformScale;
+
+                        if (tempShape === 'rectangle') drawRectangleNode(ctx, node);
+                        else if (tempShape === 'ellipse') drawEllipseNode(ctx, node);
+                        else if (tempShape === 'diamond') drawDiamondNode(ctx, node);
+                        else if (tempShape === 'triangle') drawTriangleNode(ctx, node);
+                        else drawRectangleNode(ctx, node);
+
+                        ctx.setLineDash([]); ctx.shadowColor = 'transparent';
+                        ctx.fillStyle = node.textColor || NODE_DEFAULT_TEXT_COLOR;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        let currentIconX = node.x + 10;
+                        const iconY = node.y + node.height / 2;
+                        if (node.icon) { const faIcon = AVAILABLE_ICONS.find(i => i.class === node.icon); if (faIcon) { ctx.font = `900 ${ICON_SIZE}px "Font Awesome 6 Free"`; ctx.fillText(faIcon.unicode, currentIconX, iconY); currentIconX += ICON_SIZE + 5; } }
+                        if (node.hyperlink) { ctx.font = `900 ${ICON_SIZE}px "Font Awesome 6 Free"`; const oldFill = ctx.fillStyle; ctx.fillStyle = '#60a5fa'; ctx.fillText(HYPERLINK_INDICATOR_UNICODE, currentIconX, iconY); ctx.fillStyle = oldFill; }
+                        ctx.font = '14px Inter, sans-serif';
+                        ctx.fillStyle = node.textColor || NODE_DEFAULT_TEXT_COLOR;
+                        let textMaxWidth = node.width - 15 - ( (node.icon ? ICON_SIZE + 5 : 0) + (node.hyperlink ? ICON_SIZE + 5 : 0) );
+                        let textDrawX = node.x + node.width / 2;
+                        if(node.icon || node.hyperlink) {
+                           textDrawX = node.x + (node.icon ? ICON_SIZE + 5 : 0) + (node.hyperlink ? ICON_SIZE + 5 : 0) + textMaxWidth / 2 + 5;
+                        }
+                        let textYOffset = node.height * 0.5;
+                        if (tempShape === 'ellipse') textMaxWidth *= 0.8;
+                        else if (tempShape === 'diamond') textMaxWidth *= 0.7;
+                        else if (tempShape === 'triangle') { textMaxWidth *= 0.6; textYOffset = node.height * 0.65; }
+                        wrapText(ctx, node.text || "", textDrawX, node.y + textYOffset, textMaxWidth, 18, !!node.icon, !!node.hyperlink);
+                        if (node.imageUrl && node.imageObj) drawNodeImageIndicator(ctx, node, this.scale);
+                        ctx.restore();
+                    });
+
+                    ctx.restore();
+                    let stillAnimating = false; this.nodes.forEach(n => { if(n.isAppearing || n.isLinkAnimating) stillAnimating = true; });
+                    if (stillAnimating && !this.isAnimating) this.startAnimationLoop();
+                    else if (!stillAnimating && this.isAnimating) this.isAnimating = false;
+                },
+                showError(message, type = 'error', title) { this.errorModalTitle = title || (type === 'success' ? 'Succès' : (type === 'info' ? 'Information' : 'Erreur')); this.errorModalMessage = String(message || "Une erreur inconnue s'est produite."); this.errorModalType = type; this.isErrorModalOpen = true; },
+                findNodeById(id) { return this.nodes.find(node => node.id === id); },
+                getMousePos(e, canvasEl = this.$refs.mindMapCanvas) { if (!canvasEl) return { x: 0, y: 0, screenX: e.clientX, screenY: e.clientY }; const rect = canvasEl.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top; return { x: (mx - this.offsetX) / this.scale, y: (my - this.offsetY) / this.scale, screenX: e.clientX, screenY: e.clientY }; },
+                getNodeAtPos(worldX, worldY) { for (let i = this.nodes.length - 1; i >= 0; i--) { const n = this.nodes[i]; const shape = n.shape || NODE_DEFAULT_SHAPE; const { x, y, width, height } = n; if (shape === 'rectangle') { if (worldX >= x && worldX <= x + width && worldY >= y && worldY <= y + height) return n; } else if (shape === 'ellipse') { const cx = x + width / 2; const cy = y + height / 2; const rx = width / 2; const ry = height / 2; if (rx > 0 && ry > 0) { const dx = worldX - cx; const dy = worldY - cy; if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1) return n; } } else if (shape === 'diamond') { const p1 = { x: x + width / 2, y: y }; const p2 = { x: x + width, y: y + height / 2 }; const p3 = { x: x + width / 2, y: y + height }; const p4 = { x: x, y: y + height / 2 }; const d1 = (worldX - p1.x) * (p2.y - p1.y) - (worldY - p1.y) * (p2.x - p1.x); const d2 = (worldX - p2.x) * (p3.y - p2.y) - (worldY - p2.y) * (p3.x - p2.x); const d3 = (worldX - p3.x) * (p4.y - p3.y) - (worldY - p3.y) * (p4.x - p3.x); const d4 = (worldX - p4.x) * (p1.y - p4.y) - (worldY - p4.y) * (p1.x - p4.x); if ((d1 >= 0 && d2 >= 0 && d3 >= 0 && d4 >= 0) || (d1 <= 0 && d2 <= 0 && d3 <= 0 && d4 <= 0)) return n; } else if (shape === 'triangle') { const p1 = { x: x + width / 2, y: y }; const p2 = { x: x + width, y: y + height }; const p3 = { x: x, y: y + height }; const d1 = (worldX - p2.x) * (p1.y - p2.y) - (p1.x - p2.x) * (worldY - p2.y); const d2 = (worldX - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (worldY - p3.y); const d3 = (worldX - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (worldY - p1.y); const has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0); const has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0); if (!(has_neg && has_pos)) return n; } } return null; },
+                isPositionOccupied(x, y, width, height, excludeNodeId) {
+                    const margin = 5; // Reduced margin
+                    const checkRect = { x: x - margin, y: y - margin, width: width + 2 * margin, height: height + 2 * margin };
+                    for (const node of this.nodes) {
+                        if (node.id === excludeNodeId) continue;
+                        const nodeRect = { x: node.x, y: node.y, width: node.width, height: node.height };
+                        if (checkRect.x < nodeRect.x + nodeRect.width &&
+                            checkRect.x + checkRect.width > nodeRect.x &&
+                            checkRect.y < nodeRect.y + nodeRect.height &&
+                            checkRect.y + checkRect.height > nodeRect.y) {
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                resizeCanvas() { const canvas = this.$refs.mindMapCanvas; if (!canvas || !canvas.parentElement) return; const parent = canvas.parentElement; const newWidth = Math.max(1, parent.clientWidth); const newHeight = Math.max(1, parent.clientHeight); if (canvas.width !== newWidth || canvas.height !== newHeight) { canvas.width = newWidth; canvas.height = newHeight; this.redrawCanvas(); } },
+                startAnimationLoop() {
+                    if (this.isAnimating) return;
+                    this.isAnimating = true;
+                    const animateStep = () => {
+                        let stillAnimatingThisFrame = false;
+                        this.nodes.forEach(n => {
+                            if (n.isAppearing || n.isLinkAnimating) {
+                                stillAnimatingThisFrame = true;
+                            }
+                        });
+
+                        if (stillAnimatingThisFrame) {
+                            this.redrawCanvas();
+                            requestAnimationFrame(animateStep);
+                        } else {
+                            this.isAnimating = false;
+                            this.redrawCanvas();
+                        }
+                    };
+                    requestAnimationFrame(animateStep);
+                },
+                prepareLinkAnimation(node) {
+                   if (!node || node.parentId === null) return;
+                   const parent = this.findNodeById(node.parentId);
+                   if (parent && !node.isLinkAnimating) {
+                       node.linkPrevP0 = this.getConnectionPointCoords(parent, node.parentExitPoint || 'auto');
+                       node.linkPrevP3 = this.getConnectionPointCoords(node, node.entryPoint || 'auto');
+                       node.linkAnimationStartTime = Date.now();
+                       node.isLinkAnimating = true;
+                       this.startAnimationLoop();
+                   }
+                },
+                resetInteractionStates() {
+                    this.isDragging = false;
+                    this.isPanning = false;
+                    this.draggedNodeId = null;
+                    this.potentialDropTargetId = null;
+                    this.draggingConnectionEnd = null;
+                    this.potentialEndPoint = null;
+                    this.cancelDragLinking();
+                    this.potentialLinkTargetId = null;
+                },
+                addInitialNode() {
+                    const canvas = this.$refs.mindMapCanvas;
+                    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+                        this.$nextTick(() => this.addInitialNode());
+                        return null;
+                    }
+                    const nodeId = generateUUID();
+                    const nodeWidth = NODE_DEFAULT_WIDTH + 40;
+                    const nodeHeight = NODE_DEFAULT_HEIGHT;
+                    const nodeX = (canvas.width / 2) - nodeWidth / 2;
+                    const nodeY = (canvas.height / 2) - nodeHeight / 2;
+                    const worldX = (nodeX - this.offsetX) / this.scale;
+                    const worldY = (nodeY - this.offsetY) / this.scale;
+
+                    const newNode = {
+                        id: nodeId, text: "Concept Central",
+                        x: worldX, y: worldY, width: nodeWidth, height: nodeHeight,
+                        parentId: null, color: '#4A5568', textColor: '#E2E8F0',
+                        imageUrl: null, imageObj: null, connectionType: 'solid',
+                        entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE,
+                        icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null,
+                        isAppearing: true, animationProgress: 0
+                    };
+                    this.nodes.push(newNode);
+                    this.selectedNodeId = nodeId;
+                    this.startAnimationLoop();
+                    this.recordHistory("Add Initial Node");
+                    return newNode;
+                },
+                addRootNode() {
+                    if (this.nodes.some(n => n.parentId === null)) {
+                        this.showError("Un concept central existe déjà.");
+                        return null;
+                    }
+                    const canvas = this.$refs.mindMapCanvas;
+                    if (!canvas || canvas.width <= 0 || canvas.height <= 0) { return null; }
+                    const rootId = generateUUID();
+                    const nodeWidth = NODE_DEFAULT_WIDTH + 40;
+                    const nodeHeight = NODE_DEFAULT_HEIGHT;
+                    const rootX = (this.contextMenu.rawX !== 0 ? this.contextMenu.rawX : (canvas.width / 2 - this.offsetX) / this.scale) - nodeWidth / 2;
+                    const rootY = (this.contextMenu.rawY !== 0 ? this.contextMenu.rawY : (canvas.height / 2 - this.offsetY) / this.scale) - nodeHeight / 2;
+                    const newNode = { id: rootId, text: "Concept Central", x: rootX, y: rootY, width: nodeWidth, height: nodeHeight, parentId: null, color: '#4A5568', textColor: '#E2E8F0', imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                    this.nodes.push(newNode);
+                    this.selectedNodeId = rootId;
+                    this.startAnimationLoop();
+                    this.recordHistory("Add Root Node");
+                    return newNode;
+                },
+                addNode(parentId = this.selectedNodeId) {
+                    if (!parentId) { this.showError("Veuillez sélectionner un nœud parent."); return; }
+                    const parentNode = this.findNodeById(parentId);
+                    if (!parentNode) return;
+
+                    const newNodeId = generateUUID();
+                    const newNodeWidth = NODE_DEFAULT_WIDTH;
+                    const newNodeHeight = NODE_DEFAULT_HEIGHT;
+
+                    let newNodeX = 0;
+                    let newNodeY = 0;
+
+                    const potentialPositions = [
+                        { x: parentNode.x + parentNode.width / 2 - newNodeWidth / 2, y: parentNode.y + parentNode.height + CHILD_NODE_SPACING }, // Bottom
+                        { x: parentNode.x + parentNode.width + CHILD_NODE_SPACING, y: parentNode.y + parentNode.height / 2 - newNodeHeight / 2 }, // Right
+                        { x: parentNode.x - newNodeWidth - CHILD_NODE_SPACING, y: parentNode.y + parentNode.height / 2 - newNodeHeight / 2 }, // Left
+                        { x: parentNode.x + parentNode.width / 2 - newNodeWidth / 2, y: parentNode.y - newNodeHeight - CHILD_NODE_SPACING }, // Top
+                        { x: parentNode.x + parentNode.width + CHILD_NODE_SPACING, y: parentNode.y + parentNode.height + CHILD_NODE_SPACING }, // Bottom-Right
+                        { x: parentNode.x - newNodeWidth - CHILD_NODE_SPACING, y: parentNode.y + parentNode.height + CHILD_NODE_SPACING }, // Bottom-Left
+                        { x: parentNode.x + parentNode.width + CHILD_NODE_SPACING, y: parentNode.y - newNodeHeight - CHILD_NODE_SPACING }, // Top-Right
+                        { x: parentNode.x - newNodeWidth - CHILD_NODE_SPACING, y: parentNode.y - newNodeHeight - CHILD_NODE_SPACING }, // Top-Left
+                    ];
+
+                    let positionFound = false;
+                    for (const pos of potentialPositions) {
+                        if (!this.isPositionOccupied(pos.x, pos.y, newNodeWidth, newNodeHeight, parentId)) {
+                            newNodeX = pos.x;
+                            newNodeY = pos.y;
+                            positionFound = true;
+                            break;
+                        }
+                    }
+
+                    if (!positionFound) {
+                         newNodeX = parentNode.x + parentNode.width / 2 - newNodeWidth / 2;
+                         newNodeY = parentNode.y + parentNode.height + CHILD_NODE_SPACING * 2; // Fallback further below
+                    }
+
+
+                    const tempNewNodeForCalc = { x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight };
+                    const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(parentNode, tempNewNodeForCalc);
+                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight, parentId: parentNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: entryPoint, parentExitPoint: parentExitPoint, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                    this.nodes.push(newNode);
+                    this.selectedNodeId = newNodeId;
+                    this.startAnimationLoop();
+                    this.hideContextMenu();
+                    this.recordHistory("Add Node");
+                },
+                addNodeAtPosition(worldX, worldY) {
+                    const newNodeId = generateUUID();
+                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: worldX - NODE_DEFAULT_WIDTH / 2, y: worldY - NODE_DEFAULT_HEIGHT / 2, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: null, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                    
+                    // Removed the check: if (newNode.parentId === null && this.hasRootNode)
+
+                    this.nodes.push(newNode);
+                    this.selectedNodeId = newNodeId;
+                    this.startAnimationLoop();
+                    this.hideContextMenu();
+                    this.recordHistory("Add Node at Position");
+                },
+                openTextEditModal(nodeIdToEdit = this.selectedNodeId) { if (!nodeIdToEdit) { this.showError("Sélectionnez un nœud pour modifier son texte."); return; } const node = this.findNodeById(nodeIdToEdit); if (node) { this.nodeToEditTextId = node.id; this.nodeTextInput = node.text; this.isTextEditModalOpen = true; this.$nextTick(() => { this.$refs.nodeTextInputArea?.focus(); }); this.hideContextMenu(); } },
+                saveNodeText() { if (this.nodeToEditTextId) { const node = this.findNodeById(this.nodeToEditTextId); if (node) { const oldText = node.text; const newText = this.nodeTextInput; if (oldText !== newText) { const canvas = this.$refs.mindMapCanvas; const ctx = canvas?.getContext('2d'); let newWidth = NODE_DEFAULT_WIDTH; if (ctx) { ctx.font = '14px Inter, sans-serif'; const textLines = newText.split('\n'); let maxWidth = 0; textLines.forEach(line => { const tw = ctx.measureText(line).width; if (tw > maxWidth) maxWidth = tw; }); newWidth = Math.max(NODE_DEFAULT_WIDTH, maxWidth + 40 + (node.icon ? ICON_SIZE + 5 : 0) + (node.hyperlink ? ICON_SIZE + 5 : 0) ); } node.text = newText; node.width = newWidth; this.recordHistory("Edit Node Text"); } } } this.isTextEditModalOpen = false; this.nodeToEditTextId = null; },
+                requestDeleteNode(nodeId = this.selectedNodeId) { this.hideContextMenu(); if (!nodeId) { this.showError("Sélectionnez un nœud à supprimer."); return; } this.nodeToDeleteId = nodeId; this.isDeleteConfirmModalOpen = true; },
+                confirmDeleteNode() {
+                    if (!this.nodeToDeleteId) return;
+                    const getSubtreeIds = (pId) => { let ids = []; const children = this.nodes.filter(node => node.parentId === pId); children.forEach(child => { ids.push(child.id); ids = ids.concat(getSubtreeIds(child.id)); }); return ids; };
+                    const idsToRemove = getSubtreeIds(this.nodeToDeleteId); idsToRemove.push(this.nodeToDeleteId);
+                    this.nodes = this.nodes.filter(node => !idsToRemove.includes(node.id));
+                    if (idsToRemove.includes(this.selectedNodeId)) this.selectedNodeId = null;
+                    if (idsToRemove.includes(this.nodeToEditTextId)) { this.isTextEditModalOpen = false; this.nodeToEditTextId = null; }
+                    if (this.hoveredNodeId && idsToRemove.includes(this.hoveredNodeId)) this.hoveredNodeId = null;
+                    if (this.potentialDropTargetId && idsToRemove.includes(this.potentialDropTargetId)) this.potentialDropTargetId = null;
+                    if (this.potentialLinkTargetId && idsToRemove.includes(this.potentialLinkTargetId)) this.potentialLinkTargetId = null;
+                    this.nodeToDeleteId = null; this.isDeleteConfirmModalOpen = false;
+                    this.recordHistory("Delete Node");
+                },
+                handleNodeBgColorChange(event) { if (this.selectedNodeId) { const node = this.findNodeById(this.selectedNodeId); if (node && node.color !== event.target.value) { node.color = event.target.value; this.recordHistory("Change Node Bg Color"); } } },
+                handleNodeTextColorChange(event) { if (this.selectedNodeId) { const node = this.findNodeById(this.selectedNodeId); if (node && node.textColor !== event.target.value) { node.textColor = event.target.value; this.recordHistory("Change Node Text Color"); } } },
+                triggerImageUpload(nodeId = this.selectedNodeId) { this.hideContextMenu(); if (!nodeId) { this.showError("Sélectionnez un nœud pour ajouter une image."); return; } const node = this.findNodeById(nodeId); if (node) { this.$refs.imageInput.dataset.nodeId = nodeId; this.$refs.imageInput.click(); } },
+                handleImageSelected(event) { const file = event.target.files[0]; const nodeIdToUpdate = event.target.dataset.nodeId; if (file && nodeIdToUpdate) { const reader = new FileReader(); reader.onload = (e_reader) => { const img = new Image(); img.onload = () => { const node = this.findNodeById(nodeIdToUpdate); if (node) { if (node.imageUrl && node.imageUrl.startsWith('blob:')) URL.revokeObjectURL(node.imageUrl); node.imageUrl = img.src; node.imageObj = img; this.recordHistory("Add/Change Node Image"); } }; img.onerror = () => { this.showError("Erreur lors du chargement de l'image."); const node = this.findNodeById(nodeIdToUpdate); if(node) {node.imageUrl = null; node.imageObj = null;} }; img.src = e_reader.target.result; }; reader.onerror = () => this.showError("Erreur lors de la lecture du fichier image."); reader.readAsDataURL(file); } event.target.value = ''; if (event.target.dataset.nodeId) delete event.target.dataset.nodeId; },
+                showImagePreview(imageUrl) { this.previewImageUrl = imageUrl; this.isImagePreviewModalOpen = true; },
+                openHyperlinkModal(nodeId = this.selectedNodeId) { this.hideContextMenu(); if (!nodeId) { this.showError("Sélectionnez un nœud pour ajouter un lien."); return; } const node = this.findNodeById(nodeId); if (node) { this.nodeToEditHyperlinkId = nodeId; this.hyperlinkInput = node.hyperlink || ''; this.isHyperlinkModalOpen = true; } },
+                saveNodeHyperlink() { if (this.nodeToEditHyperlinkId) { const node = this.findNodeById(this.nodeToEditHyperlinkId); if (node) { const newLink = this.hyperlinkInput.trim(); if (node.hyperlink !== newLink) { node.hyperlink = newLink || null; this.recordHistory("Add/Edit Hyperlink"); } } } this.isHyperlinkModalOpen = false; this.nodeToEditHyperlinkId = null; },
+                setNodeProperty(nodeId, property, value) {
+                    const node = this.findNodeById(nodeId);
+                    let propertyChanged = false;
+                    if (node) {
+                        if (property === 'entryPoint' && node.parentId) {
+                            if (node.entryPoint !== value) {
+                                this.prepareLinkAnimation(node);
+                                node.entryPoint = value;
+                                const parentNode = this.findNodeById(node.parentId);
+                                if (parentNode) {
+                                    const { parentExitPoint: newParentExit } = this.calculateDefaultConnectionPoints(parentNode, node);
+                                    node.parentExitPoint = newParentExit;
+                                }
+                                propertyChanged = true;
+                            }
+                        } else if (property === 'parentExitPoint' && node.parentId) {
+                            if (node.parentExitPoint !== value) {
+                                this.prepareLinkAnimation(node);
+                                node.parentExitPoint = value;
+                                const parentNode = this.findNodeById(node.parentId);
+                                if (parentNode) {
+                                    const { entryPoint: newEntryPoint } = this.calculateDefaultConnectionPoints(parentNode, node);
+                                    node.entryPoint = newEntryPoint;
+                                }
+                                propertyChanged = true;
+                            }
+                        } else if (node[property] !== value) { // For other properties or if not a link property with a parent
+                            if (property === 'connectionType' && node.parentId) { // Also animate for connection type change
+                                this.prepareLinkAnimation(node);
+                            }
+                            node[property] = value;
+                            propertyChanged = true;
+                        }
+                    }
+                    this.clearPreviewConnectionSide();
+                    this.hideContextMenu();
+                    if (propertyChanged) { this.recordHistory(`Set Node Property: ${property}`); } // RedrawCanvas will be triggered by watcher or animation loop
+                },
+                detachNode(nodeId) {
+                    const node = this.findNodeById(nodeId);
+                    if (node && node.parentId !== null) {
+                        node.parentId = null;
+                        node.parentExitPoint = null;
+                        if (node.isLinkAnimating) {
+                            node.isLinkAnimating = false;
+                            delete node.linkPrevP0;
+                            delete node.linkPrevP3;
+                            delete node.linkAnimationStartTime;
+                        }
+                        this.recordHistory("Detach Node");
+                    }
+                    this.hideContextMenu();
+                },
+                startLinking(nodeId) { this.hideContextMenu(); const node = this.findNodeById(nodeId); if (node) { this.isLinking = true; this.linkStartNodeId = nodeId; this.showError("Cliquez sur le nœud que vous voulez définir comme nouveau parent.", "info"); } },
+                cancelLinking() { this.isLinking = false; this.linkStartNodeId = null; },
+                cancelDragLinking() { this.isDraggingLink = false; this.linkDragStartNodeId = null; this.linkDragEndPos = null; this.potentialLinkTargetId = null; },
+                handleMouseDown(e) {
+                    const contextMenuEl = this.$refs.contextMenuElement;
+                    if (this.contextMenu.visible && (!contextMenuEl || !contextMenuEl.contains(e.target))) {
+                        this.hideContextMenu();
+                    }
+                    const fileMenuEl = this.$refs.fileMenuElement;
+                    const fileMenuButtonEl = this.$refs.fileMenuButton;
+                    if (this.fileMenu.visible) {
+                        let clickedRelevantFileMenuPart = false;
+                        if (fileMenuButtonEl && fileMenuButtonEl.contains(e.target)) { clickedRelevantFileMenuPart = true; }
+                        else if (fileMenuEl && fileMenuEl.contains(e.target)) { clickedRelevantFileMenuPart = true; }
+                        if (!clickedRelevantFileMenuPart) { this.fileMenu.visible = false; }
+                    }
+
+                    const pos = this.getMousePos(e); this.lastMousePos = { clientX: e.clientX, clientY: e.clientY };
+                    const clickedConnEnd = this.getClickedConnectionEnd(pos);
+                    if (clickedConnEnd) { this.draggingConnectionEnd = clickedConnEnd; this.isDragging = false; this.isPanning = false; this.draggedNodeId = null; this.potentialDropTargetId = null; this.isDraggingLink = false; this.$refs.mindMapCanvas.style.cursor = 'move'; return; }
+                    if (this.isLinking) { e.stopPropagation(); const clickedNode = this.getNodeAtPos(pos.x, pos.y); const childNode = this.findNodeById(this.linkStartNodeId); if (clickedNode && childNode && clickedNode.id !== childNode.id && !this.isAncestor(childNode.id, clickedNode.id)) { const calculatedPoints = this.calculateDefaultConnectionPoints(clickedNode, childNode); childNode.parentId = clickedNode.id; childNode.parentExitPoint = calculatedPoints.parentExitPoint; if (!childNode.entryPoint || childNode.entryPoint === 'auto') { childNode.entryPoint = calculatedPoints.entryPoint; } this.recordHistory("Link Node (Context Menu)"); } else if (clickedNode) { this.showError("Connexion invalide (ex: connexion à soi-même ou à un descendant)."); } this.cancelLinking(); return; }
+                    const clickedImageIndicatorNode = this.getNodeWithImageIndicatorClick(pos.x, pos.y); 
+                    if (clickedImageIndicatorNode) { 
+                        this.showImagePreview(clickedImageIndicatorNode.imageUrl); 
+                        this.resetInteractionStates(); // Ensure other interactions are cleared
+                        return; 
+                    }
+                    const clickedNodeForLink = this.getNodeAtPos(pos.x, pos.y);
+                    if (e.altKey && clickedNodeForLink) { this.isDraggingLink = true; this.linkDragStartNodeId = clickedNodeForLink.id; this.linkDragEndPos = pos; this.resetInteractionStates(); this.isDraggingLink = true; this.linkDragStartNodeId = clickedNodeForLink.id; this.linkDragEndPos = pos; return; }
+                    this.dragStart = pos; const clickedNode = this.getNodeAtPos(pos.x, pos.y);
+                    if (clickedNode) { this.isDragging = true; this.draggedNodeId = clickedNode.id; if (this.selectedNodeId !== clickedNode.id) this.selectedNodeId = clickedNode.id; }
+                    else { this.isPanning = true; this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY }; this.$refs.mindMapCanvas.style.cursor = 'grabbing'; if (this.selectedNodeId !== null) this.selectedNodeId = null; }
+                },
+                handleMouseMove(e) {
+                    const pos = this.getMousePos(e);
+                    this.lastMousePos = { clientX: e.clientX, clientY: e.clientY };
+                    if (this.isLinking) { return; }
+                    let newCursor = this.$refs.mindMapCanvas.style.cursor || 'grab';
+                    this.potentialLinkTargetId = null; // Clear alt-drag target unless alt-dragging
+                    this.potentialDropTargetId = null; // Clear node-drag target unless node-dragging
+
+                    if (this.isDraggingLink) { 
+                        this.linkDragEndPos = pos; 
+                        const currentPotentialTarget = this.getNodeAtPos(pos.x, pos.y); 
+                        let newPotentialLinkTargetId = null; 
+                        if (currentPotentialTarget && currentPotentialTarget.id !== this.linkDragStartNodeId && !this.isAncestor(this.linkDragStartNodeId, currentPotentialTarget.id)) { 
+                            newPotentialLinkTargetId = currentPotentialTarget.id; 
+                        } 
+                        this.potentialLinkTargetId = newPotentialLinkTargetId; 
+                    } else if (this.draggingConnectionEnd) {
+                        const draggedLinkOriginalChild = this.findNodeById(this.draggingConnectionEnd.childId);
+                        const draggedLinkOriginalParent = this.findNodeById(draggedLinkOriginalChild.parentId);
+                        let newHoveredNodeForEndpoint = this.getNodeAtPos(pos.x, pos.y);
+                        let finalNodeForSideCalc;
+                        let isValidNewTarget = false;
+
+                        if (newHoveredNodeForEndpoint) {
+                            if (this.draggingConnectionEnd.endType === 'parentExit') { // Dragging parent-side endpoint
+                                if (newHoveredNodeForEndpoint.id !== draggedLinkOriginalChild.id &&
+                                    !this.isAncestor(draggedLinkOriginalChild.id, newHoveredNodeForEndpoint.id)) {
+                                    isValidNewTarget = true;
+                                }
+                            } else { // 'childEntry', dragging child-side endpoint
+                                if (newHoveredNodeForEndpoint.id !== draggedLinkOriginalParent.id &&
+                                    !this.isAncestor(draggedLinkOriginalParent.id, newHoveredNodeForEndpoint.id)) {
+                                    isValidNewTarget = true;
+                                }
+                            }
+                        }
+                        finalNodeForSideCalc = isValidNewTarget ? newHoveredNodeForEndpoint : this.draggingConnectionEnd.nodeToAttach;
+                        
+                        let closestSide = null; let minDistSq = Infinity; let tempCoords = null;
+                        CONNECTION_POINTS.forEach(side => {
+                            const sideCoords = this.getConnectionPointCoords(finalNodeForSideCalc, side);
+                            const distSq = (pos.x - sideCoords.x) ** 2 + (pos.y - sideCoords.y) ** 2;
+                            if (distSq < minDistSq) { minDistSq = distSq; closestSide = side; tempCoords = sideCoords; }
+                        });
+                        this.potentialEndPoint = { node: finalNodeForSideCalc, side: closestSide, coords: tempCoords };
+                        newCursor = 'move';
+                    }
+                    else if (this.isDragging && this.draggedNodeId) {
+                        const draggedNode = this.findNodeById(this.draggedNodeId);
+                        if (draggedNode) {
+                            const dx = (pos.x - this.dragStart.x);
+                            const dy = (pos.y - this.dragStart.y);
+
+                            this.prepareLinkAnimation(draggedNode);
+                            this.nodes.forEach(n => {
+                                if (n.parentId === draggedNode.id) {
+                                    this.prepareLinkAnimation(n);
+                                }
+                            });
+
+                            draggedNode.x += dx;
+                            draggedNode.y += dy;
+                            this.dragStart = pos;
+                        }
+                        let currentPotentialTarget = null; let minDistanceSq = Infinity; const thresholdSq = (REPARENT_PROXIMITY_THRESHOLD / this.scale) ** 2; this.nodes.forEach(targetNode => { if (targetNode.id === this.draggedNodeId) return; const targetCenterX = targetNode.x + targetNode.width / 2; const targetCenterY = targetNode.y + targetNode.height / 2; const distSq = (pos.x - targetCenterX) ** 2 + (pos.y - targetCenterY) ** 2; if (distSq < minDistanceSq && distSq <= thresholdSq) { const draggedNodeData = this.findNodeById(this.draggedNodeId); if (draggedNodeData && targetNode.id !== draggedNodeData.parentId && !this.isAncestor(this.draggedNodeId, targetNode.id)) { minDistanceSq = distSq; currentPotentialTarget = targetNode.id; } } }); if (this.potentialDropTargetId !== currentPotentialTarget) this.potentialDropTargetId = currentPotentialTarget;
+                        this.potentialDropTargetId = currentPotentialTarget;
+                    }
+                    else if (this.isPanning) { this.offsetX = e.clientX - this.panStart.x; this.offsetY = e.clientY - this.panStart.y; }
+                    else { const nodeOver = this.getNodeAtPos(pos.x, pos.y); this.hoveredNodeId = nodeOver ? nodeOver.id : null; if (nodeOver) newCursor = 'pointer'; else newCursor = 'grab'; const connOver = this.getHoveredConnectionId(pos); this.hoveredConnectionId = connOver; if (connOver) newCursor = 'pointer'; if (this.getClickedConnectionEnd(pos)) newCursor = 'move'; else if (this.getNodeWithImageIndicatorClick(pos.x, pos.y)) newCursor = 'pointer'; }
+                    if (this.$refs.mindMapCanvas.style.cursor !== newCursor && !this.isDraggingLink && !this.isPanning && !this.isDragging) { this.$refs.mindMapCanvas.style.cursor = newCursor; }
+                },
+                handleMouseUp(e) {
+                    const wasDragging = this.isDragging; let stateChanged = false;
+                    
+                    if (this.isDraggingLink) {
+                        const sourceNode = this.findNodeById(this.linkDragStartNodeId);
+                        if (sourceNode) {
+                            if (this.potentialLinkTargetId) {
+                                const targetNode = this.findNodeById(this.potentialLinkTargetId);
+                                if (targetNode && sourceNode.id !== targetNode.id && !this.isAncestor(sourceNode.id, targetNode.id)) {
+                                    if(sourceNode.parentId !== targetNode.id) {
+                                        this.prepareLinkAnimation(sourceNode);
+                                        const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(targetNode, sourceNode);
+                                        sourceNode.parentId = targetNode.id; sourceNode.parentExitPoint = parentExitPoint; sourceNode.entryPoint = entryPoint;
+                                        stateChanged = true;
+                                    }
+                                }
+                            } else if (this.linkDragEndPos) {
+                                const newNodeId = generateUUID();
+                                const newNodeX = this.linkDragEndPos.x - NODE_DEFAULT_WIDTH / 2;
+                                const newNodeY = this.linkDragEndPos.y - NODE_DEFAULT_HEIGHT / 2;
+                                const tempNewNodeForCalc = { x: newNodeX, y: newNodeY, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT };
+                                const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(sourceNode, tempNewNodeForCalc);
+                                const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: sourceNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: entryPoint, parentExitPoint: parentExitPoint, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                                this.nodes.push(newNode);
+                                this.selectedNodeId = newNodeId;
+                                this.startAnimationLoop();
+                                stateChanged = true;
+                            }
+                        }
+                        this.cancelDragLinking();
+
+                    } else if (this.draggingConnectionEnd && this.potentialEndPoint) {
+                        const linkedChildNode = this.findNodeById(this.draggingConnectionEnd.childId); // This is C
+                        const originalParentNode = this.findNodeById(linkedChildNode.parentId);    // This is P
+                        const newEndpointNode = this.potentialEndPoint.node; // This is P' or C'
+                        const newEndpointSide = this.potentialEndPoint.side;
+
+                        if (this.draggingConnectionEnd.endType === 'parentExit') { // Dragged parent-side of link P->C
+                            // newEndpointNode is the new parent P'. newEndpointSide is the exit point on P'.
+                            const newParentCandidate = newEndpointNode;
+                            if (newParentCandidate.id !== originalParentNode.id || linkedChildNode.parentExitPoint !== newEndpointSide) {
+                                this.prepareLinkAnimation(linkedChildNode);
+                                linkedChildNode.parentId = newParentCandidate.id;
+                                linkedChildNode.parentExitPoint = newEndpointSide; // Exit point on newParentCandidate
+                                const { entryPoint: newChildEntryPoint } = this.calculateDefaultConnectionPoints(newParentCandidate, linkedChildNode);
+                                linkedChildNode.entryPoint = newChildEntryPoint; // Entry point on linkedChildNode (C)
+                                stateChanged = true;
+                            }
+                        } else { // 'childEntry', dragged child-side of link P->C
+                            // newEndpointNode is the new child C'. newEndpointSide is the entry point on C'.
+                            const newChildCandidate = newEndpointNode;
+
+                            if (newChildCandidate.id !== linkedChildNode.id) { // Re-wiring P to a new child C'
+                                this.prepareLinkAnimation(newChildCandidate); // Animate C'
+                                newChildCandidate.parentId = originalParentNode.id;
+                                newChildCandidate.entryPoint = newEndpointSide; // Entry point on C'
+                                const { parentExitPoint: newParentExitForCPrime } = this.calculateDefaultConnectionPoints(originalParentNode, newChildCandidate);
+                                newChildCandidate.parentExitPoint = newParentExitForCPrime; // Exit point on P for link to C'
+
+                                if (linkedChildNode.parentId === originalParentNode.id) { // Detach original child C
+                                    this.prepareLinkAnimation(linkedChildNode);
+                                    linkedChildNode.parentId = null;
+                                    linkedChildNode.parentExitPoint = null;
+                                }
+                                stateChanged = true;
+                            } else { // Just changing entry point on the same child C (newChildCandidate.id === linkedChildNode.id)
+                                if (linkedChildNode.entryPoint !== newEndpointSide) {
+                                    this.prepareLinkAnimation(linkedChildNode);
+                                    linkedChildNode.entryPoint = newEndpointSide; // New entry point on C
+                                    const { parentExitPoint: newParentExitForC } = this.calculateDefaultConnectionPoints(originalParentNode, linkedChildNode);
+                                    linkedChildNode.parentExitPoint = newParentExitForC; // Recalculate exit point on P for link to C
+                                    stateChanged = true;
+                                    }
+                            }
+                        }
+                    } else if (wasDragging && this.draggedNodeId && this.potentialDropTargetId) { // Node drag reparenting
+                        const draggedNode = this.findNodeById(this.draggedNodeId);
+                        const targetNode = this.findNodeById(this.potentialDropTargetId);
+                        if (draggedNode && targetNode && draggedNode.id !== targetNode.id && draggedNode.parentId !== targetNode.id && !this.isAncestor(draggedNode.id, targetNode.id)) {
+                            this.prepareLinkAnimation(draggedNode);
+                            const calculatedPoints = this.calculateDefaultConnectionPoints(targetNode, draggedNode);
+                            draggedNode.parentId = targetNode.id; draggedNode.parentExitPoint = calculatedPoints.parentExitPoint;
+                            if(!draggedNode.entryPoint || draggedNode.entryPoint === 'auto') { draggedNode.entryPoint = calculatedPoints.entryPoint; }
+                            stateChanged = true;
+                        }
+                    }
+                    if (wasDragging && this.draggedNodeId && !this.potentialDropTargetId) { stateChanged = true; }
+                    
+                    this.resetInteractionStates();
+
+                    if (stateChanged) {
+                        this.recordHistory(this.draggingConnectionEnd ? "Modify Link Attachment" : "Node Interaction/Move");
+                    }
+                    this.draggingConnectionEnd = null; // Ensure reset after use
+                    this.potentialEndPoint = null;     // Ensure reset
+                    const currentPos = this.getMousePos(e);
+                    if (!this.isDraggingLink && !this.isDragging && !this.isPanning) { const nodeOver = this.getNodeAtPos(currentPos.x, currentPos.y); const connOver = this.getHoveredConnectionId(currentPos); const connEndOver = this.getClickedConnectionEnd(currentPos); if (nodeOver || connOver || connEndOver) this.$refs.mindMapCanvas.style.cursor = 'pointer'; else this.$refs.mindMapCanvas.style.cursor = 'grab'; }
+                },
+                handleMouseOut(e) { const canvas = this.$refs.mindMapCanvas; if (canvas && !canvas.contains(e.relatedTarget)) { this.resetInteractionStates(); this.hoveredConnectionId = null; this.hoveredNodeId = null; if(this.$refs.mindMapCanvas) this.$refs.mindMapCanvas.style.cursor = 'grab'; } },
+                handleDoubleClick(e) { if (this.isLinking || this.isDraggingLink || this.getClickedConnectionEnd(this.getMousePos(e))) return; this.hideContextMenu(); const pos = this.getMousePos(e); const clickedNode = this.getNodeAtPos(pos.x, pos.y); if (clickedNode) { this.selectedNodeId = clickedNode.id; let iconAreaXStart = clickedNode.x + 5; let clickedOnLink = false; if (clickedNode.icon) iconAreaXStart += ICON_SIZE + 5; if (clickedNode.hyperlink) { const linkIconX = iconAreaXStart; const linkIconWidth = ICON_SIZE; if (pos.x >= linkIconX && pos.x <= linkIconX + linkIconWidth && pos.y >= clickedNode.y + clickedNode.height/2 - ICON_SIZE/2 && pos.y <= clickedNode.y + clickedNode.height/2 + ICON_SIZE/2) { clickedOnLink = true; } } if (clickedOnLink) { window.open(clickedNode.hyperlink, '_blank'); return; } if (clickedNode.imageUrl) this.showImagePreview(clickedNode.imageUrl); else this.openTextEditModal(clickedNode.id); } },
+                handleWheel(e) { if (this.isLinking || this.isDraggingLink) return; this.hideContextMenu(); const oldScale = this.scale; const delta = e.deltaY > 0 ? 0.9 : 1.1; this.zoom(delta, e.clientX, e.clientY); if (this.scale !== oldScale) this.recordHistory("Zoom View"); },
+                zoom(factor, clientX, clientY) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const rect = canvas.getBoundingClientRect(); const mx = clientX !== undefined ? clientX - rect.left : canvas.width / 2; const my = clientY !== undefined ? clientY - rect.top : canvas.height / 2; const wxBefore = (mx - this.offsetX) / this.scale; const wyBefore = (my - this.offsetY) / this.scale; const newScale = Math.max(0.1, Math.min(this.scale * factor, 5)); this.offsetX = mx - wxBefore * newScale; this.offsetY = my - wyBefore * newScale; this.scale = newScale; },
+                resetView() { this.hideContextMenu(); const oldView = {ox: this.offsetX, oy: this.offsetY, sc: this.scale}; if (this.nodes.length > 0) { const firstNode = this.nodes.find(n => n.parentId === null) || this.nodes[0]; if (firstNode) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const newScale = 1; this.scale = newScale; this.offsetX = canvas.width / 2 - (firstNode.x + firstNode.width / 2) * newScale; this.offsetY = canvas.height / 2 - (firstNode.y + firstNode.height / 2) * newScale; } } else { this.scale = 1; this.offsetX = 0; this.offsetY = 0; } if(oldView.ox !== this.offsetX || oldView.oy !== this.offsetY || oldView.sc !== this.scale) this.recordHistory("Reset View"); },
+                handleContextMenu(e) {
+                    this.hideContextMenu();
+                    if(this.fileMenu.visible) this.fileMenu.visible = false;
+                    if (this.isLinking || this.isDraggingLink || this.draggingConnectionEnd) return;
+                    const pos = this.getMousePos(e);
+                    const clickedNode = this.getNodeAtPos(pos.x, pos.y);
+                    if (clickedNode && this.selectedNodeId !== clickedNode.id) this.selectedNodeId = clickedNode.id;
+                    this.contextMenu = { visible: true, x: e.clientX, y: e.clientY, nodeId: clickedNode ? clickedNode.id : null, rawX: pos.x, rawY: pos.y };
+                    this.$nextTick(() => { this.adjustContextMenuPosition(); });
+                },
+                adjustContextMenuPosition() { const menuEl = this.$refs.contextMenuElement; if (menuEl) { const menuWidth = menuEl.offsetWidth; const menuHeight = menuEl.offsetHeight; let newX = this.contextMenu.x; let newY = this.contextMenu.y; if (newX + menuWidth > window.innerWidth) newX = window.innerWidth - menuWidth - 5; if (newY + menuHeight > window.innerHeight) newY = window.innerHeight - menuHeight - 5; if (newX < 0) newX = 5; if (newY < 0) newY = 5; this.contextMenu.x = newX; this.contextMenu.y = newY; } },
+                hideContextMenu() { if (this.contextMenu.visible) this.contextMenu.visible = false; this.clearPreviewConnectionSide(); },
+                handleGlobalClick(event) {
+                    const contextMenuEl = this.$refs.contextMenuElement;
+                    if (this.contextMenu.visible && contextMenuEl && !contextMenuEl.contains(event.target)) {
+                        this.hideContextMenu();
+                    }
+                    const fileMenuEl = this.$refs.fileMenuElement;
+                    const fileMenuButtonEl = this.$refs.fileMenuButton;
+                    if (this.fileMenu.visible && fileMenuEl && !fileMenuEl.contains(event.target) &&
+                        (!fileMenuButtonEl || (fileMenuButtonEl && !fileMenuButtonEl.contains(event.target))) ) {
+                        this.fileMenu.visible = false;
+                    }
+                },
+                handleGlobalKeyDown(e) {
+                    if (e.key === 'Escape') {
+                        if (this.isDraggingLink) this.cancelDragLinking();
+                        if (this.isLinking) this.cancelLinking();
+                        if (this.contextMenu.visible) this.hideContextMenu();
+                        if (this.fileMenu.visible) this.fileMenu.visible = false;
+                        if (this.isTextEditModalOpen) this.isTextEditModalOpen = false;
+                        if (this.isImagePreviewModalOpen) this.isImagePreviewModalOpen = false;
+                        if (this.isDeleteConfirmModalOpen) this.isDeleteConfirmModalOpen = false;
+                        if (this.isErrorModalOpen) this.isErrorModalOpen = false;
+                        if (this.isAboutModalOpen) this.isAboutModalOpen = false;
+                        if (this.isHyperlinkModalOpen) this.isHyperlinkModalOpen = false;
+                    } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                        e.preventDefault(); this.undo();
+                    } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                        e.preventDefault(); this.redo();
+                    }
+                },
+                prepareSaveData() { const viewState = { offsetX: this.offsetX, offsetY: this.offsetY, scale: this.scale }; const nodesToSave = this.nodes.map(node => { const { imageObj, ...rest } = node; return rest; }); return { nodes: nodesToSave, view: viewState, canvasBgColor: this.canvasBgColor, history: this.history, currentHistoryIndex: this.currentHistoryIndex }; },
+                saveMapToLocalStorage(isAutosave = false) { if (!isAutosave) { if(this.fileMenu.visible) this.fileMenu.visible = false; } try { const dataToSave = this.prepareSaveData(); localStorage.setItem('mindMapDataVue', JSON.stringify(dataToSave)); if (!isAutosave) { this.showError('Carte sauvegardée dans le navigateur !', 'success'); } else { console.log("Autosave to localStorage successful at " + new Date().toLocaleTimeString()); } } catch (error) { if (error.name === 'QuotaExceededError') { this.showError("Erreur d'auto-sauvegarde : Stockage local plein. La sauvegarde automatique est désactivée.", 'error'); if (this.autosaveIntervalId) { clearInterval(this.autosaveIntervalId); this.autosaveIntervalId = null; console.warn("Autosave stopped due to QuotaExceededError."); } } else { if (!isAutosave) { this.showError("Erreur sauvegarde locale.", 'error'); } console.error("Save to localStorage error:", error); } } },
+                saveMapToFile() { if(this.fileMenu.visible) this.fileMenu.visible = false; try { const dataToSave = this.prepareSaveData(); const dataString = JSON.stringify(dataToSave, null, 2); const blob = new Blob([dataString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; const rootNode = this.nodes.find(n => n.parentId === null); const filename = rootNode ? `${rootNode.text.substring(0, 20).replace(/[^a-z0-9]/gi, '_')}.mapvue` : 'carte_mentale.mapvue'; link.download = filename; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (error) { this.showError("Erreur lors de la création du fichier .mapvue."); } },
+                async processLoadedData(loadedData, from = "unknown") {
+                    this.nodes.forEach(node => { if (node.imageUrl && node.imageUrl.startsWith('blob:')) URL.revokeObjectURL(node.imageUrl); });
+                    this.nodes = []; this.history = []; this.currentHistoryIndex = -1; this.selectedNodeId = null;
+                    let loadSuccessful = false;
+
+                    if (!loadedData || !Array.isArray(loadedData.nodes) || !loadedData.view) {
+                        console.log("No valid data found in storage or file.");
+                        this.offsetX = 0; this.offsetY = 0; this.scale = 1; this.canvasBgColor = DEFAULT_CANVAS_BG_COLOR;
+                        this.redrawCanvas();
+                        return loadSuccessful;
+                    }
+
+                    this.offsetX = loadedData.view.offsetX || 0;
+                    this.offsetY = loadedData.view.offsetY || 0;
+                    this.scale = loadedData.view.scale || 1;
+                    this.canvasBgColor = loadedData.canvasBgColor || DEFAULT_CANVAS_BG_COLOR;
+
+                    let loadError = false;
+                    const imageLoadPromises = loadedData.nodes.map(nodeData => {
+                        return new Promise((resolve) => {
+                            if (!nodeData || typeof nodeData.id === 'undefined' || nodeData.id === null) { resolve(null); return; }
+                            const node = { ...nodeData, imageObj: null };
+                            if (node.imageUrl && node.imageUrl.startsWith('data:image')) {
+                                const img = new Image();
+                                img.onload = () => { node.imageObj = img; resolve(node); };
+                                img.onerror = () => { node.imageUrl = null; loadError = true; resolve(node); };
+                                img.src = node.imageUrl;
+                            } else {
+                                node.imageUrl = null;
+                                resolve(node);
+                            }
+                        });
+                    });
+
+                    try {
+                        const resolvedNodes = await Promise.all(imageLoadPromises);
+                        this.nodes = resolvedNodes.filter(Boolean);
+                        if (loadError) this.showError("Certaines images n'ont pas pu être chargées.");
+                        this.selectedNodeId = this.nodes.length > 0 ? (this.nodes.find(n => n.parentId === null)?.id || this.nodes[0]?.id) : null;
+
+                        if (loadedData.history && from !== "history_navigation") {
+                            this.history = loadedData.history;
+                            this.currentHistoryIndex = loadedData.currentHistoryIndex !== undefined ? loadedData.currentHistoryIndex : (loadedData.history.length > 0 ? loadedData.history.length - 1 : -1);
+                        } else if (from !== "history_navigation" && this.nodes.length > 0) {
+                             this.recordHistory("Load Map from " + from);
+                        }
+                        this.redrawCanvas();
+                        loadSuccessful = true;
+                    } catch (error) {
+                        console.error("Error processing loaded images:", error);
+                        this.showError("Une erreur s'est produite lors du chargement des images de la carte.");
+                        this.resetApplicationState();
+                        loadSuccessful = false;
+                    }
+                    return loadSuccessful;
+                },
+                async loadMapFromLocalStorage() {
+                    const savedDataString = localStorage.getItem('mindMapDataVue');
+                    let loadedSuccessfully = false;
+                    if (savedDataString) {
+                        try {
+                            const savedData = JSON.parse(savedDataString);
+                            loadedSuccessfully = await this.processLoadedData(savedData, "LocalStorage");
+                        } catch (error) {
+                            console.error("Error parsing localStorage data:", error);
+                            localStorage.removeItem('mindMapDataVue');
+                            this.resetApplicationState();
+                            loadedSuccessfully = false;
+                        }
+                    } else {
+                        this.resetApplicationState();
+                        loadedSuccessfully = false;
+                    }
+                    return loadedSuccessfully;
+                },
+                handleMapFileSelected(event) {
+                    if(this.fileMenu.visible) this.fileMenu.visible = false;
+                    const file = event.target.files[0]; if (!file) return;
+                    if (!file.type.match('application/json') && !file.name.endsWith('.mapvue')) { this.showError("Veuillez sélectionner un fichier .mapvue ou .json valide."); event.target.value = ''; return; }
+                    const reader = new FileReader();
+                    reader.onload = async (e_reader) => {
+                        try {
+                            const loadedData = JSON.parse(e_reader.target.result);
+                            await this.processLoadedData(loadedData, "File");
+                        } catch (error) {
+                            this.showError(`Erreur lors du chargement du fichier : ${error.message}`);
+                            this.resetApplicationState();
+                        } finally {
+                            event.target.value = '';
+                        }
+                    };
+                    reader.onerror = () => {
+                        this.showError("Impossible de lire le fichier sélectionné.");
+                        this.resetApplicationState();
+                    }
+                    reader.readAsText(file);
+                },
+                exportToPng() { this.hideContextMenu(); if(this.fileMenu.visible) this.fileMenu.visible = false; if (this.nodes.length === 0) { this.showError("Rien à exporter."); return;} const canvas = this.$refs.mindMapCanvas; try { const dataUrl = canvas.toDataURL('image/png'); const link = document.createElement('a'); link.href = dataUrl; const rootNode = this.nodes.find(n => n.parentId === null); const filename = rootNode ? `${rootNode.text.substring(0, 20).replace(/[^a-z0-9]/gi, '_')}.png` : 'carte-mentale.png'; link.download = filename; document.body.appendChild(link); link.click(); document.body.removeChild(link); } catch (e) { this.showError("Erreur lors de l'exportation en PNG."); } },
+                resetApplicationState() {
+                    this.nodes.forEach(node => { if (node.imageUrl && node.imageUrl.startsWith('blob:')) URL.revokeObjectURL(node.imageUrl); });
+                    this.nodes = [];
+                    this.history = [];
+                    this.currentHistoryIndex = -1;
+                    this.selectedNodeId = null;
+                    this.offsetX = 0;
+                    this.offsetY = 0;
+                    this.scale = 1;
+                    this.canvasBgColor = DEFAULT_CANVAS_BG_COLOR;
+                    this.previewConnectionSide = null;
+                    this.hideContextMenu();
+                    if(this.fileMenu) this.fileMenu.visible = false;
+                    this.isErrorModalOpen = false;
+                },
+                resetApplication() {
+                    this.resetApplicationState();
+                    this.$nextTick(() => {
+                        this.addInitialNode();
+                        this.redrawCanvas();
+                    });
+                },
+                getNodeIconPreview(iconClass) { if (!iconClass) return 'Aucune'; const iconObj = AVAILABLE_ICONS.find(i => i.class === iconClass); return iconObj ? iconObj.name : 'Inconnue'; },
+                getNodeShapeIcon(shape) { if (shape === 'ellipse') return 'far fa-circle'; if (shape === 'diamond') return 'far fa-gem'; if (shape === 'triangle') return 'fas fa-play fa-rotate-270'; return 'far fa-square'; },
+                getConnectionTypeIndicator(type) { if (type === 'solid') return '⎯'; if (type === 'dashed') return '- -'; if (type === 'arrow') return '->'; return '?'; },
+                getConnectionPointCoords(node, pointName) { if (!node) return { x: 0, y: 0 }; const shape = node.shape || NODE_DEFAULT_SHAPE; const { x, y, width: w, height: h } = node; const cx = x + w / 2; const cy = y + h / 2; if (shape === 'rectangle' || shape === 'diamond') { switch (pointName) { case 'top': return { x: cx, y: y }; case 'bottom': return { x: cx, y: y + h }; case 'left': return { x: x, y: cy }; case 'right': return { x: x + w, y: cy }; default: return { x: cx, y: y }; } } else if (shape === 'ellipse') { const rx = w / 2; const ry = h / 2; if (rx <= 0 || ry <=0) return {x: cx, y: cy}; switch (pointName) { case 'top': return { x: cx, y: cy - ry }; case 'bottom': return { x: cx, y: cy + ry }; case 'left': return { x: cx - rx, y: cy }; case 'right': return { x: cx + rx, y: cy }; default: return { x: cx, y: cy - ry }; } } else if (shape === 'triangle') { switch (pointName) { case 'top': return { x: cx, y: y }; case 'bottom': return { x: cx, y: y + h }; case 'left': return { x: x + w * 0.25, y: y + h * 0.65 }; case 'right': return { x: x + w * 0.75, y: y + h * 0.65 }; default: return { x: cx, y: y }; } } return { x: cx, y: y }; },
+                isAncestor(potentialChildId, potentialParentId) { let currentId = potentialParentId; let visited = new Set(); while (currentId !== null) { if (visited.has(currentId)) return true; visited.add(currentId); const node = this.findNodeById(currentId); if (!node) return false; if (node.parentId === potentialChildId) return true; currentId = node.parentId; } return false; },
+                calculateDefaultConnectionPoints(parentNode, childNode) { const dx = (childNode.x + childNode.width / 2) - (parentNode.x + parentNode.width / 2); const dy = (childNode.y + childNode.height / 2) - (parentNode.y + parentNode.height / 2); if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? { parentExitPoint: 'right', entryPoint: 'left' } : { parentExitPoint: 'left', entryPoint: 'right' }; else return dy > 0 ? { parentExitPoint: 'bottom', entryPoint: 'top' } : { parentExitPoint: 'top', entryPoint: 'bottom' }; },
+                getClickedConnectionEnd(pos) { const radius = CONNECTION_END_HOVER_RADIUS / this.scale; const radiusSq = radius * radius; for (const child of this.nodes) { if (child.parentId !== null) { const parent = this.findNodeById(child.parentId); if (parent) { const startCoords = this.getConnectionPointCoords(parent, child.parentExitPoint || 'bottom'); const endCoords = this.getConnectionPointCoords(child, child.entryPoint || 'top'); let dx1 = pos.x - startCoords.x; let dy1 = pos.y - startCoords.y; if (dx1 * dx1 + dy1 * dy1 <= radiusSq) return { childId: child.id, end: 'parentExit', nodeToAttach: parent }; let dx2 = pos.x - endCoords.x; let dy2 = pos.y - endCoords.y; if (dx2 * dx2 + dy2 * dy2 <= radiusSq) return { childId: child.id, end: 'childEntry', nodeToAttach: child }; } } } return null; },
+                getNodeWithImageIndicatorClick(wx, wy) { for (let i = this.nodes.length - 1; i >= 0; i--) { const n = this.nodes[i]; if (!n.imageUrl || !n.imageObj) continue; const rWorld = (IMAGE_INDICATOR_SIZE / 2); const indicatorScreenX = n.x + n.width - (IMAGE_INDICATOR_SIZE / 2); const indicatorScreenY = n.y + (IMAGE_INDICATOR_SIZE / 2); const dx = wx - indicatorScreenX; const dy = wy - indicatorScreenY; if (dx * dx + dy * dy <= rWorld * rWorld) return n; } return null; },
+                getHoveredConnectionId(pos) { const hoverDistThreshold = 5 / this.scale; const hoverDistThresholdSq = hoverDistThreshold * hoverDistThreshold; const numCheckPoints = 10; for (const child of this.nodes) { if (child.parentId !== null) { const parent = this.findNodeById(child.parentId); if (parent) { const startCoords = this.getConnectionPointCoords(parent, child.parentExitPoint || 'bottom'); const endCoords = this.getConnectionPointCoords(child, child.entryPoint || 'top'); const P0 = startCoords; const P3 = endCoords; let P1 = { ...P0 }, P2 = { ...P3 }; const fixedOffset = 50; switch (child.parentExitPoint || 'bottom') { case 'top': P1.y -= fixedOffset; break; case 'bottom': P1.y += fixedOffset; break; case 'left': P1.x -= fixedOffset; break; case 'right': P1.x += fixedOffset; break;} switch (child.entryPoint || 'top') { case 'top': P2.y -= fixedOffset; break; case 'bottom': P2.y += fixedOffset; break; case 'left': P2.x -= fixedOffset; break; case 'right': P2.x += fixedOffset; break;} for (let i = 1; i < numCheckPoints; i++) { const t = i / numCheckPoints; const mt = 1 - t; const x = mt*mt*mt*P0.x + 3*mt*mt*t*P1.x + 3*mt*t*t*P2.x + t*t*t*P3.x; const y = mt*mt*mt*P0.y + 3*mt*mt*t*P1.y + 3*mt*t*t*P2.y + t*t*t*P3.y; if ((pos.x - x) ** 2 + (pos.y - y) ** 2 <= hoverDistThresholdSq) return child.id; } } } } return null; }
+            }
+        });
+        app.config.globalProperties.$filters = {
+            capitalize(value) {
+                if (!value) return ''
+                value = value.toString()
+                return value.charAt(0).toUpperCase() + value.slice(1)
+            }
+        }
+        app.mount('#app');
+    </script>
 </body>
 </html>
