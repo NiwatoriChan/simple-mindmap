@@ -331,7 +331,7 @@
         const NODE_LINK_TARGET_BORDER_COLOR = '#f59e0b'; const CONNECTION_HOVER_COLOR = '#3b82f6';
         const CONNECTION_PREVIEW_COLOR = '#facc15';
         const IMAGE_INDICATOR_SIZE = 15; const IMAGE_INDICATOR_COLOR = '#10b981';
-        const CONNECTION_TYPES = ['solid', 'dashed', 'arrow']; const CONNECTION_POINTS = ['top', 'bottom', 'left', 'right'];
+        const CONNECTION_TYPES = ['solid', 'dashed', 'arrow']; const CONNECTION_POINTS = ['auto', 'top', 'bottom', 'left', 'right'];
         const REPARENT_PROXIMITY_THRESHOLD = 60; const CONNECTION_END_HOVER_RADIUS = 8;
         const NODE_SHAPES = ['rectangle', 'ellipse', 'diamond', 'triangle']; const NODE_DEFAULT_SHAPE = 'rectangle';
         const NODE_APPEAR_SPEED = 0.07; const NODE_HOVER_SCALE = 1.05;
@@ -592,39 +592,69 @@
                         if (!child || child.parentId === null || child.parentId === undefined) return;
                         const parent = this.findNodeById(child.parentId);
                         if (parent) {
-                            let tempParentExitPoint = child.parentExitPoint || 'bottom';
-                            let tempChildEntryPoint = child.entryPoint || 'top';
-                            let tempConnectionType = child.connectionType || 'solid';
-                            let isPreviewingConnection = false;
+                            let resolvedParentExitPoint = child.parentExitPoint;
+                            let resolvedChildEntryPoint = child.entryPoint;
+                            let resolvedConnectionType = child.connectionType || 'solid';
+
+                            if (resolvedParentExitPoint === null && resolvedChildEntryPoint === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                resolvedParentExitPoint = dp.parentExitPoint;
+                                resolvedChildEntryPoint = dp.entryPoint;
+                            } else if (resolvedParentExitPoint === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                resolvedParentExitPoint = dp.parentExitPoint;
+                            } else if (resolvedChildEntryPoint === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                resolvedChildEntryPoint = dp.entryPoint;
+                            }
+
+                            let finalDrawParentExit = resolvedParentExitPoint;
+                            let finalDrawChildEntry = resolvedChildEntryPoint;
+                            let isStylingPreview = false; // True if any visual aspect (points or type) is being previewed for this child.
+
                             let isBeingDraggedEndpoint = this.draggingConnectionEnd && this.draggingConnectionEnd.childId === child.id;
 
-                            let currentParentNode = parent;
-                            let currentChildNode = child;
-                            let currentParentExitPoint = tempParentExitPoint;
-                            let currentChildEntryPoint = tempChildEntryPoint;
-
                             if (this.previewConnectionSide && this.previewConnectionSide.nodeId === child.id) {
-                                if (this.previewConnectionSide.property === 'parentExitPoint') { tempParentExitPoint = this.previewConnectionSide.value; isPreviewingConnection = true; }
-                                else if (this.previewConnectionSide.property === 'entryPoint') { tempChildEntryPoint = this.previewConnectionSide.value; isPreviewingConnection = true; }
-                                else if (this.previewConnectionSide.property === 'connectionType') { tempConnectionType = this.previewConnectionSide.value; isPreviewingConnection = true; }
-                                // Update current points if previewing
-                                currentParentExitPoint = tempParentExitPoint;
-                                currentChildEntryPoint = tempChildEntryPoint;
+                                isStylingPreview = true; // A preview is active for this child's connection
+                                if (this.previewConnectionSide.property === 'parentExitPoint') {
+                                    finalDrawParentExit = (this.previewConnectionSide.value === 'auto') ? null : this.previewConnectionSide.value;
+                                } else if (this.previewConnectionSide.property === 'entryPoint') {
+                                    finalDrawChildEntry = (this.previewConnectionSide.value === 'auto') ? null : this.previewConnectionSide.value;
+                                } else if (this.previewConnectionSide.property === 'connectionType') {
+                                    resolvedConnectionType = this.previewConnectionSide.value;
+                                }
                             }
+
+                            // Re-resolve if preview set a point to 'auto' (null)
+                            if (finalDrawParentExit === null && finalDrawChildEntry === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                finalDrawParentExit = dp.parentExitPoint;
+                                finalDrawChildEntry = dp.entryPoint;
+                            } else if (finalDrawParentExit === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                finalDrawParentExit = dp.parentExitPoint;
+                            } else if (finalDrawChildEntry === null) {
+                                const dp = this.calculateDefaultConnectionPoints(parent, child);
+                                finalDrawChildEntry = dp.entryPoint;
+                            }
+
+                            // Final fallback if still null (should ideally not happen if calculateDefaultConnectionPoints is robust)
+                            finalDrawParentExit = finalDrawParentExit || 'bottom';
+                            finalDrawChildEntry = finalDrawChildEntry || 'top';
 
                             let finalP0, finalP3;
 
                             if (isBeingDraggedEndpoint && this.potentialEndPoint) {
                                 if (this.draggingConnectionEnd.endType === 'parentExit') {
-                                    finalP0 = this.potentialEndPoint.coords; // From potential new parent/side
-                                    finalP3 = this.getConnectionPointCoords(child, currentChildEntryPoint); // To original child's entry
+                                    finalP0 = this.potentialEndPoint.coords;
+                                    finalP3 = this.getConnectionPointCoords(child, finalDrawChildEntry);
                                 } else { // 'childEntry'
-                                    finalP0 = this.getConnectionPointCoords(parent, currentParentExitPoint); // From original parent's exit
-                                    finalP3 = this.potentialEndPoint.coords; // To potential new child/side
+                                    finalP0 = this.getConnectionPointCoords(parent, finalDrawParentExit);
+                                    finalP3 = this.potentialEndPoint.coords;
                                 }
                             } else {
-                                finalP0 = this.getConnectionPointCoords(currentParentNode, currentParentExitPoint);
-                                finalP3 = this.getConnectionPointCoords(currentChildNode, currentChildEntryPoint);
+                                finalP0 = this.getConnectionPointCoords(parent, finalDrawParentExit);
+                                finalP3 = this.getConnectionPointCoords(child, finalDrawChildEntry);
                             }
                             
                             if (!finalP0 || !finalP3 || typeof finalP0.x !== 'number' || typeof finalP3.x !== 'number') return;
@@ -650,38 +680,40 @@
                                 }
                             }
 
-                            if (isPreviewingConnection) {
+                            // Determine styling based on preview or actual state
+                            if (isStylingPreview) { // isStylingPreview is true if any aspect (points or type) is being previewed
                                 ctx.strokeStyle = CONNECTION_PREVIEW_COLOR;
                             } else if (child.id === this.hoveredConnectionId || isBeingDraggedEndpoint) {
                                 ctx.strokeStyle = CONNECTION_HOVER_COLOR;
                             } else {
                                 ctx.strokeStyle = ds.connectionColor;
                             }
-                            ctx.fillStyle = ctx.strokeStyle;
+                            ctx.fillStyle = ctx.strokeStyle; // For arrowhead
 
                             let P1 = { x: P0.x, y: P0.y }, P2 = { x: P3.x, y: P3.y };
-                            const fixedOffset = 50; 
+                            const fixedOffset = 50;
                             
-                            let effectiveParentExitSide = currentParentExitPoint;
-                            let effectiveChildEntrySide = currentChildEntryPoint;
+                            let effectiveParentExitSide = finalDrawParentExit;
+                            let effectiveChildEntrySide = finalDrawChildEntry;
 
                             if (isBeingDraggedEndpoint && this.potentialEndPoint) {
                                 if (this.draggingConnectionEnd.endType === 'parentExit') {
-                                    effectiveParentExitSide = this.potentialEndPoint.side;
+                                    effectiveParentExitSide = this.potentialEndPoint.side || finalDrawParentExit; // Fallback to finalDraw if side is undefined
                                 } else { // 'childEntry'
-                                    effectiveChildEntrySide = this.potentialEndPoint.side;
+                                    effectiveChildEntrySide = this.potentialEndPoint.side || finalDrawChildEntry; // Fallback to finalDraw if side is undefined
                                 }
                             }
-
-                            switch (effectiveParentExitSide) { case 'top': P1.y -= fixedOffset; break; case 'bottom': P1.y += fixedOffset; break; case 'left': P1.x -= fixedOffset; break; case 'right': P1.x += fixedOffset; break; }
-                            switch (effectiveChildEntrySide) { case 'top': P2.y -= fixedOffset; break; case 'bottom': P2.y += fixedOffset; break; case 'left': P2.x -= fixedOffset; break; case 'right': P2.x += fixedOffset; break; }
                             
-                            if (tempConnectionType === 'dashed') ctx.setLineDash([7,4]);
-                            else if (tempConnectionType === 'dotted') ctx.setLineDash([2,3]);
+                            switch (effectiveParentExitSide) { case 'top': P1.y -= fixedOffset; break; case 'bottom': P1.y += fixedOffset; break; case 'left': P1.x -= fixedOffset; break; case 'right': P1.x += fixedOffset; break; default: P1.y += fixedOffset; /* Default to bottom-like behavior */ break; }
+                            switch (effectiveChildEntrySide) { case 'top': P2.y -= fixedOffset; break; case 'bottom': P2.y += fixedOffset; break; case 'left': P2.x -= fixedOffset; break; case 'right': P2.x += fixedOffset; break; default: P2.y -= fixedOffset; /* Default to top-like behavior */ break; }
+
+                            // Use resolvedConnectionType which includes preview
+                            if (resolvedConnectionType === 'dashed') ctx.setLineDash([7,4]);
+                            else if (resolvedConnectionType === 'dotted') ctx.setLineDash([2,3]);
                             else ctx.setLineDash([]);
 
                             ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.bezierCurveTo(P1.x, P1.y, P2.x, P2.y, P3.x, P3.y); ctx.stroke();
-                            if (tempConnectionType === 'arrow') drawArrowhead(ctx, P2.x, P2.y, P3.x, P3.y, 10);
+                            if (resolvedConnectionType === 'arrow') drawArrowhead(ctx, P2.x, P2.y, P3.x, P3.y, 10);
                             ctx.setLineDash([]);
 
                             if (child.id === this.hoveredConnectionId || isBeingDraggedEndpoint) {
@@ -893,7 +925,7 @@
                         x: worldX, y: worldY, width: nodeWidth, height: nodeHeight,
                         parentId: null, color: '#4A5568', textColor: '#E2E8F0',
                         imageUrl: null, imageObj: null, connectionType: 'solid',
-                        entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE,
+                        entryPoint: null, parentExitPoint: null, shape: NODE_DEFAULT_SHAPE,
                         icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null,
                         isAppearing: true, animationProgress: 0
                     };
@@ -962,8 +994,8 @@
 
 
                     const tempNewNodeForCalc = { x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight };
-                    const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(parentNode, tempNewNodeForCalc);
-                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight, parentId: parentNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: entryPoint, parentExitPoint: parentExitPoint, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                    const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(parentNode, tempNewNodeForCalc); // This is fine for immediate drawing, but node stores null.
+                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: newNodeWidth, height: newNodeHeight, parentId: parentNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: null, parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
                     this.nodes.push(newNode);
                     this.selectedNodeId = newNodeId;
                     this.startAnimationLoop();
@@ -972,7 +1004,7 @@
                 },
                 addNodeAtPosition(worldX, worldY) {
                     const newNodeId = generateUUID();
-                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: worldX - NODE_DEFAULT_WIDTH / 2, y: worldY - NODE_DEFAULT_HEIGHT / 2, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: null, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: 'top', parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                    const newNode = { id: newNodeId, text: "Nouveau Nœud", x: worldX - NODE_DEFAULT_WIDTH / 2, y: worldY - NODE_DEFAULT_HEIGHT / 2, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: null, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: null, parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
                     
                     // Removed the check: if (newNode.parentId === null && this.hasRootNode)
 
@@ -1010,25 +1042,33 @@
                     let propertyChanged = false;
                     if (node) {
                         if (property === 'entryPoint' && node.parentId) {
-                            if (node.entryPoint !== value) {
+                            const newEntryPointToSet = (value === 'auto') ? null : value;
+                            if (node.entryPoint !== newEntryPointToSet) {
                                 this.prepareLinkAnimation(node);
-                                node.entryPoint = value;
-                                const parentNode = this.findNodeById(node.parentId);
-                                if (parentNode) {
-                                    const { parentExitPoint: newParentExit } = this.calculateDefaultConnectionPoints(parentNode, node);
-                                    node.parentExitPoint = newParentExit;
+                                node.entryPoint = newEntryPointToSet;
+                                if (newEntryPointToSet !== null) {
+                                    const parentNode = this.findNodeById(node.parentId);
+                                    if (parentNode) {
+                                        const { parentExitPoint: newParentExit } = this.calculateDefaultConnectionPoints(parentNode, node);
+                                        node.parentExitPoint = newParentExit;
+                                    }
                                 }
+                                // Else: if newEntryPointToSet is null (auto), parentExitPoint remains as is.
                                 propertyChanged = true;
                             }
                         } else if (property === 'parentExitPoint' && node.parentId) {
-                            if (node.parentExitPoint !== value) {
+                            const newParentExitPointToSet = (value === 'auto') ? null : value;
+                            if (node.parentExitPoint !== newParentExitPointToSet) {
                                 this.prepareLinkAnimation(node);
-                                node.parentExitPoint = value;
-                                const parentNode = this.findNodeById(node.parentId);
-                                if (parentNode) {
-                                    const { entryPoint: newEntryPoint } = this.calculateDefaultConnectionPoints(parentNode, node);
-                                    node.entryPoint = newEntryPoint;
+                                node.parentExitPoint = newParentExitPointToSet;
+                                if (newParentExitPointToSet !== null) {
+                                    const parentNode = this.findNodeById(node.parentId);
+                                    if (parentNode) {
+                                        const { entryPoint: newEntryPoint } = this.calculateDefaultConnectionPoints(parentNode, node);
+                                        node.entryPoint = newEntryPoint;
+                                    }
                                 }
+                                // Else: if newParentExitPointToSet is null (auto), entryPoint remains as is.
                                 propertyChanged = true;
                             }
                         } else if (node[property] !== value) { // For other properties or if not a link property with a parent
@@ -1041,7 +1081,7 @@
                     }
                     this.clearPreviewConnectionSide();
                     this.hideContextMenu();
-                    if (propertyChanged) { this.recordHistory(`Set Node Property: ${property}`); } // RedrawCanvas will be triggered by watcher or animation loop
+                    if (propertyChanged) { this.recordHistory(`Set Node Property: ${property} to ${value}`); } // RedrawCanvas will be triggered by watcher or animation loop
                 },
                 detachNode(nodeId) {
                     const node = this.findNodeById(nodeId);
@@ -1183,8 +1223,8 @@
                                 const newNodeX = this.linkDragEndPos.x - NODE_DEFAULT_WIDTH / 2;
                                 const newNodeY = this.linkDragEndPos.y - NODE_DEFAULT_HEIGHT / 2;
                                 const tempNewNodeForCalc = { x: newNodeX, y: newNodeY, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT };
-                                const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(sourceNode, tempNewNodeForCalc);
-                                const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: sourceNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: entryPoint, parentExitPoint: parentExitPoint, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
+                                const { parentExitPoint, entryPoint } = this.calculateDefaultConnectionPoints(sourceNode, tempNewNodeForCalc); // For immediate drawing context
+                                const newNode = { id: newNodeId, text: "Nouveau Nœud", x: newNodeX, y: newNodeY, width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT, parentId: sourceNode.id, color: NODE_DEFAULT_BG_COLOR, textColor: NODE_DEFAULT_TEXT_COLOR, imageUrl: null, imageObj: null, connectionType: 'solid', entryPoint: null, parentExitPoint: null, shape: NODE_DEFAULT_SHAPE, icon: null, borderStyle: 'solid', borderWidth: 1, hyperlink: null, isAppearing: true, animationProgress: 0 };
                                 this.nodes.push(newNode);
                                 this.selectedNodeId = newNodeId;
                                 this.startAnimationLoop();
