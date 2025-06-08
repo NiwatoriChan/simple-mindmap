@@ -596,6 +596,21 @@
                             let resolvedChildEntryPoint = child.entryPoint;
                             let resolvedConnectionType = child.connectionType || 'solid';
 
+                            // Apply frozen points if dragging relevant nodes
+                            if (this.isDragging) {
+                                if (child.id === this.draggedNodeId && child._frozenEntryPoint) {
+                                    resolvedChildEntryPoint = child._frozenEntryPoint;
+                                }
+                                // If the parent is being dragged and this child's connection to it had an auto exit point (on the parent)
+                                if (parent.id === this.draggedNodeId && child._frozenParentExitPointOnParent) {
+                                     resolvedParentExitPoint = child._frozenParentExitPointOnParent;
+                                }
+                                // If this child's parent is the dragged node, and this child's entry point was auto
+                                if (child.parentId === this.draggedNodeId && child._frozenEntryPoint) {
+                                    resolvedChildEntryPoint = child._frozenEntryPoint;
+                                }
+                            }
+
                             if (resolvedParentExitPoint === null && resolvedChildEntryPoint === null) {
                                 const dp = this.calculateDefaultConnectionPoints(parent, child);
                                 resolvedParentExitPoint = dp.parentExitPoint;
@@ -1128,7 +1143,44 @@
                     const clickedNodeForLink = this.getNodeAtPos(pos.x, pos.y);
                     if (e.altKey && clickedNodeForLink) { this.isDraggingLink = true; this.linkDragStartNodeId = clickedNodeForLink.id; this.linkDragEndPos = pos; this.resetInteractionStates(); this.isDraggingLink = true; this.linkDragStartNodeId = clickedNodeForLink.id; this.linkDragEndPos = pos; return; }
                     this.dragStart = pos; const clickedNode = this.getNodeAtPos(pos.x, pos.y);
-                    if (clickedNode) { this.isDragging = true; this.draggedNodeId = clickedNode.id; if (this.selectedNodeId !== clickedNode.id) this.selectedNodeId = clickedNode.id; }
+                    if (clickedNode) {
+                        this.isDragging = true; this.draggedNodeId = clickedNode.id;
+                        if (this.selectedNodeId !== clickedNode.id) this.selectedNodeId = clickedNode.id;
+
+                        const draggedNode = this.findNodeById(this.draggedNodeId);
+                        if (draggedNode) {
+                            // Freeze dragged node's own entry point if it's auto and has a parent
+                            if (draggedNode.parentId !== null && draggedNode.entryPoint === null) {
+                                const parentOfDragged = this.findNodeById(draggedNode.parentId);
+                                if (parentOfDragged) {
+                                    const dp = this.calculateDefaultConnectionPoints(parentOfDragged, draggedNode);
+                                    draggedNode._frozenEntryPoint = dp.entryPoint;
+                                }
+                            }
+
+                            // Freeze entry points of children if they are auto
+                            this.nodes.forEach(node => {
+                                if (node.parentId === draggedNode.id && node.entryPoint === null) {
+                                    const dp = this.calculateDefaultConnectionPoints(draggedNode, node);
+                                    node._frozenEntryPoint = dp.entryPoint;
+                                }
+                            });
+
+                            // Freeze exit point on parent if it's auto for the connection to the dragged node
+                            if (draggedNode.parentId !== null) {
+                                const parentNode = this.findNodeById(draggedNode.parentId);
+                                if (parentNode) {
+                                    // parentExitPoint on the child (draggedNode) refers to the exit side on the parentNode
+                                    if (draggedNode.parentExitPoint === null) {
+                                        const dp = this.calculateDefaultConnectionPoints(parentNode, draggedNode);
+                                        // We need a way to store this frozen exit ON the parent, but specific to this link.
+                                        // Since parentExitPoint is stored on the child, we'll temporarily store it on the child for lookup during redraw.
+                                        draggedNode._frozenParentExitPointOnParent = dp.parentExitPoint;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     else { this.isPanning = true; this.panStart = { x: e.clientX - this.offsetX, y: e.clientY - this.offsetY }; this.$refs.mindMapCanvas.style.cursor = 'grabbing'; if (this.selectedNodeId !== null) this.selectedNodeId = null; }
                 },
                 handleMouseMove(e) {
@@ -1290,6 +1342,14 @@
                     }
                     if (wasDragging && this.draggedNodeId && !this.potentialDropTargetId) { stateChanged = true; }
                     
+                    // Clear frozen points after drag operation
+                    if (wasDragging || this.isDraggingLink || this.draggingConnectionEnd) { // Clear if any drag type occurred
+                        this.nodes.forEach(node => {
+                            delete node._frozenEntryPoint;
+                            delete node._frozenParentExitPointOnParent;
+                        });
+                    }
+
                     this.resetInteractionStates();
 
                     if (stateChanged) {
@@ -1300,7 +1360,22 @@
                     const currentPos = this.getMousePos(e);
                     if (!this.isDraggingLink && !this.isDragging && !this.isPanning) { const nodeOver = this.getNodeAtPos(currentPos.x, currentPos.y); const connOver = this.getHoveredConnectionId(currentPos); const connEndOver = this.getClickedConnectionEnd(currentPos); if (nodeOver || connOver || connEndOver) this.$refs.mindMapCanvas.style.cursor = 'pointer'; else this.$refs.mindMapCanvas.style.cursor = 'grab'; }
                 },
-                handleMouseOut(e) { const canvas = this.$refs.mindMapCanvas; if (canvas && !canvas.contains(e.relatedTarget)) { this.resetInteractionStates(); this.hoveredConnectionId = null; this.hoveredNodeId = null; if(this.$refs.mindMapCanvas) this.$refs.mindMapCanvas.style.cursor = 'grab'; } },
+                handleMouseOut(e) {
+                    const canvas = this.$refs.mindMapCanvas;
+                    if (canvas && !canvas.contains(e.relatedTarget)) {
+                        // Clear frozen points if mouse leaves canvas during a drag
+                        if (this.isDragging || this.isDraggingLink || this.draggingConnectionEnd) {
+                           this.nodes.forEach(node => {
+                                delete node._frozenEntryPoint;
+                                delete node._frozenParentExitPointOnParent;
+                            });
+                        }
+                        this.resetInteractionStates();
+                        this.hoveredConnectionId = null;
+                        this.hoveredNodeId = null;
+                        if(this.$refs.mindMapCanvas) this.$refs.mindMapCanvas.style.cursor = 'grab';
+                    }
+                },
                 handleDoubleClick(e) { if (this.isLinking || this.isDraggingLink || this.getClickedConnectionEnd(this.getMousePos(e))) return; this.hideContextMenu(); const pos = this.getMousePos(e); const clickedNode = this.getNodeAtPos(pos.x, pos.y); if (clickedNode) { this.selectedNodeId = clickedNode.id; let iconAreaXStart = clickedNode.x + 5; let clickedOnLink = false; if (clickedNode.icon) iconAreaXStart += ICON_SIZE + 5; if (clickedNode.hyperlink) { const linkIconX = iconAreaXStart; const linkIconWidth = ICON_SIZE; if (pos.x >= linkIconX && pos.x <= linkIconX + linkIconWidth && pos.y >= clickedNode.y + clickedNode.height/2 - ICON_SIZE/2 && pos.y <= clickedNode.y + clickedNode.height/2 + ICON_SIZE/2) { clickedOnLink = true; } } if (clickedOnLink) { window.open(clickedNode.hyperlink, '_blank'); return; } if (clickedNode.imageUrl) this.showImagePreview(clickedNode.imageUrl); else this.openTextEditModal(clickedNode.id); } },
                 handleWheel(e) { if (this.isLinking || this.isDraggingLink) return; this.hideContextMenu(); const oldScale = this.scale; const delta = e.deltaY > 0 ? 0.9 : 1.1; this.zoom(delta, e.clientX, e.clientY); if (this.scale !== oldScale) this.recordHistory("Zoom View"); },
                 zoom(factor, clientX, clientY) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const rect = canvas.getBoundingClientRect(); const mx = clientX !== undefined ? clientX - rect.left : canvas.width / 2; const my = clientY !== undefined ? clientY - rect.top : canvas.height / 2; const wxBefore = (mx - this.offsetX) / this.scale; const wyBefore = (my - this.offsetY) / this.scale; const newScale = Math.max(0.1, Math.min(this.scale * factor, 5)); this.offsetX = mx - wxBefore * newScale; this.offsetY = my - wyBefore * newScale; this.scale = newScale; },
