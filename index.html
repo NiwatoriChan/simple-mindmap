@@ -1322,11 +1322,17 @@
                     if (this.fileMenu.visible) {
                         this.fileMenu.visible = false;
                     } else {
+                        // Close other UI elements before opening file menu
+                        this.hideContextMenu(); // Also clears previewConnectionSide
+                        if (this.isMobileView && this.isSidebarOpen) {
+                            this.isSidebarOpen = false;
+                            // If sidebar closing affects layout, might need $nextTick before calc, but usually not for overlay
+                        }
+
                         const buttonRect = event.currentTarget.getBoundingClientRect();
                         this.fileMenu.top = `${buttonRect.bottom + window.scrollY}px`;
                         this.fileMenu.left = `${buttonRect.left + window.scrollX}px`;
                         this.fileMenu.visible = true;
-                        this.hideContextMenu();
                     }
                 },
                 setPreviewConnectionSide(nodeId, property, value) {
@@ -1753,7 +1759,16 @@
                     this.resizeCanvas();
                 },
                 toggleSidebar() {
-                    this.isSidebarOpen = !this.isSidebarOpen;
+                    const openingSidebar = !this.isSidebarOpen;
+                    this.isSidebarOpen = openingSidebar;
+
+                    if (openingSidebar) { // When opening sidebar
+                        this.hideContextMenu(); // Also clears previewConnectionSide
+                        if (this.fileMenu.visible) {
+                            this.fileMenu.visible = false;
+                        }
+                    }
+                    // Canvas resize logic needs to be aware of sidebar state, especially on desktop
                     this.$nextTick(() => {
                         this.resizeCanvas();
                     });
@@ -2403,8 +2418,12 @@
                 zoom(factor, clientX, clientY) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const rect = canvas.getBoundingClientRect(); const mx = clientX !== undefined ? clientX - rect.left : canvas.width / 2; const my = clientY !== undefined ? clientY - rect.top : canvas.height / 2; const wxBefore = (mx - this.offsetX) / this.scale; const wyBefore = (my - this.offsetY) / this.scale; const newScale = Math.max(0.1, Math.min(this.scale * factor, 5)); this.offsetX = mx - wxBefore * newScale; this.offsetY = my - wyBefore * newScale; this.scale = newScale; },
                 resetView() { this.hideContextMenu(); const oldView = {ox: this.offsetX, oy: this.offsetY, sc: this.scale}; if (this.nodes.length > 0) { const firstNode = this.nodes.find(n => n.parentId === null) || this.nodes[0]; if (firstNode) { const canvas = this.$refs.mindMapCanvas; if (!canvas) return; const newScale = 1; this.scale = newScale; this.offsetX = canvas.width / 2 - (firstNode.x + firstNode.width / 2) * newScale; this.offsetY = canvas.height / 2 - (firstNode.y + firstNode.height / 2) * newScale; } } else { this.scale = 1; this.offsetX = 0; this.offsetY = 0; } if(oldView.ox !== this.offsetX || oldView.oy !== this.offsetY || oldView.sc !== this.scale) this.recordHistory("Reset View"); },
                 handleContextMenu(e) {
-                    this.hideContextMenu();
+                    // New logic: Close other potentially interfering UI elements first
                     if(this.fileMenu.visible) this.fileMenu.visible = false;
+                    if(this.isMobileView && this.isSidebarOpen) this.isSidebarOpen = false;
+                    // Ensure any existing context menu is hidden before showing a new one (hideContextMenu also clears previews)
+                    this.hideContextMenu();
+
                     if (this.isLinking || this.isDraggingLink || this.draggingConnectionEnd) return;
                     const pos = this.getMousePos(e);
                     const clickedNode = this.getNodeAtPos(pos.x, pos.y);
@@ -2425,20 +2444,38 @@
                         (!fileMenuButtonEl || (fileMenuButtonEl && !fileMenuButtonEl.contains(event.target))) ) {
                         this.fileMenu.visible = false;
                     }
+
+                    // Close mobile overlay sidebar if clicking outside
+                    if (this.isMobileView && this.isSidebarOpen) {
+                        const mobileSidebarEl = document.getElementById('mobilePropertiesSidebar');
+                        const sidebarToggleBtnEl = this.$refs.sidebarToggleButton;
+                        if (mobileSidebarEl && !mobileSidebarEl.contains(event.target) &&
+                            sidebarToggleBtnEl && !sidebarToggleBtnEl.contains(event.target)) {
+                            this.isSidebarOpen = false;
+                        }
+                    }
                 },
                 handleGlobalKeyDown(e) {
                     if (e.key === 'Escape') {
-                        if (this.isSidebarOpen) this.isSidebarOpen = false;
-                        else if (this.isDraggingLink) this.cancelDragLinking();
-                        else if (this.isLinking) this.cancelLinking();
-                        else if (this.contextMenu.visible) this.hideContextMenu();
-                        else if (this.fileMenu.visible) this.fileMenu.visible = false;
-                        else if (this.isTextEditModalOpen) this.isTextEditModalOpen = false;
-                        if (this.isImagePreviewModalOpen) this.isImagePreviewModalOpen = false;
-                        if (this.isDeleteConfirmModalOpen) this.isDeleteConfirmModalOpen = false;
-                        if (this.isErrorModalOpen) this.isErrorModalOpen = false;
-                        if (this.isAboutModalOpen) this.isAboutModalOpen = false;
-                        if (this.isHyperlinkModalOpen) this.isHyperlinkModalOpen = false;
+                        let closedSomething = false;
+                        // Modals first
+                        if (this.isTextEditModalOpen) { this.isTextEditModalOpen = false; closedSomething = true; }
+                        else if (this.isHyperlinkModalOpen) { this.isHyperlinkModalOpen = false; closedSomething = true; }
+                        else if (this.isImagePreviewModalOpen) { this.isImagePreviewModalOpen = false; closedSomething = true; }
+                        else if (this.isDeleteConfirmModalOpen) { this.isDeleteConfirmModalOpen = false; closedSomething = true; }
+                        else if (this.isErrorModalOpen) { this.isErrorModalOpen = false; closedSomething = true; }
+                        else if (this.isAboutModalOpen) { this.isAboutModalOpen = false; closedSomething = true; }
+                        // Then menus / sidebars
+                        else if (this.contextMenu.visible) { this.hideContextMenu(); closedSomething = true; }
+                        else if (this.fileMenu.visible) { this.fileMenu.visible = false; closedSomething = true; }
+                        else if (this.isSidebarOpen) { this.isSidebarOpen = false; closedSomething = true; }
+                        // Then interaction states
+                        else if (this.isLinking) { this.cancelLinking(); closedSomething = true; }
+                        else if (this.isDraggingLink) { this.cancelDragLinking(); closedSomething = true; }
+
+                        if (closedSomething) {
+                            e.preventDefault(); // Prevent other browser escape actions if we handled it
+                        }
                     } else if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
                         e.preventDefault(); this.undo();
                     } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
